@@ -5,6 +5,8 @@
 #include "Global/ScenarioPlayerStateBase.h"
 #include "Global/ScenarioGameInstanceBase.h"
 #include "Global/ScenarioGameStateBase.h"
+#include "Actor/ScenarioEntryBase.h"
+#include "Actor/ScenarioPhaseBase.h"
 #include "GameFramework/GameStateBase.h"
 #include "LogSystem/ScenarioLogSubsystem.h"
 
@@ -12,6 +14,7 @@
 AScenarioPlayerControllerBase::AScenarioPlayerControllerBase()
 {
 }
+
 
 void AScenarioPlayerControllerBase::RequestStartScenario()
 {
@@ -33,6 +36,21 @@ void AScenarioPlayerControllerBase::Server_RequestStartScenario_Implementation()
     {
         // 안전하게 서버 측 게임스테이트를 통해 환경 조립을 시작합니다.
         GS->StartScenario();
+    }
+}
+
+void AScenarioPlayerControllerBase::Server_RequestCompleteEntry_Implementation(FGameplayTag EntryID)
+{
+    if (!HasAuthority()) return;
+
+    UWorld* World = GetWorld();
+    if (!World) return;
+
+    AScenarioGameStateBase* GS = World->GetGameState<AScenarioGameStateBase>();
+    if (GS)
+    {
+        // PlayerController가 직접 내부 배열을 훑지 않고 GameState의 공용 함수를 경유하도록 캡슐화 단계를 정립합니다.
+        GS->RequestCompleteEntryByID(EntryID);
     }
 }
 

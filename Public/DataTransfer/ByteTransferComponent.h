@@ -59,6 +59,10 @@ public:
     UFUNCTION(BlueprintPure, Category = "Networking|Transfer")
     float GetLocalProgressPercentage() const;
 
+protected:
+    // 수명주기 종료 시 메모리 강제 해제를 위한 오버라이드 추가
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 private:
     UFUNCTION(Server, Reliable)
     void Server_ReadyToSync();

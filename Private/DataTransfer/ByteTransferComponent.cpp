@@ -19,6 +19,16 @@ UByteTransferComponent::UByteTransferComponent()
     CurrentCompletedFileCount = 0;
 }
 
+void UByteTransferComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    // 데이터 전달 도중 끊긴 버퍼들을 명시적으로 청소하여 메모리 누수 원천 차단
+    ActiveServerTransfers.Empty();
+    ReceivedBuffers.Empty();
+    MissingImageKeys.Empty();
+
+    Super::EndPlay(EndPlayReason);
+}
+
 void UByteTransferComponent::NotifyReadyToServer()
 {
     if (GetNetMode() == NM_Client || GetOwnerRole() < ROLE_Authority)

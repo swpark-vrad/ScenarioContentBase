@@ -58,6 +58,10 @@ struct FZoneSpawnRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
+	// 엔트리 스폰시 InteractionZone을 특정하기 위한 고유 ID
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
+	FGameplayTag EntryID;
+
 	// 스폰할 BP_IZ의 서브클래스 (메모리 최적화를 위해 Soft Class Pointer 적용)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
 	TSoftClassPtr<class AActor> ZoneClass;
@@ -72,6 +76,10 @@ USTRUCT(BlueprintType)
 struct FScenarioEntryUIData
 {
 	GENERATED_BODY()
+
+	// UI 레이어에서 고유 식별 및 RPC 요청에 사용할 EntryID 태그 멤버를 추가합니다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|UI")
+	FGameplayTag EntryID;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|UI")
 	FName EntryName;

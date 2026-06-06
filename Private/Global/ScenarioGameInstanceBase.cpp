@@ -51,6 +51,8 @@ void UScenarioGameInstanceBase::ShutdownSessionAsHost()
             return;
         }
     }
+    // 호스트가 로비로 이동하기 전 메모리 초기화
+    ClearScenarioMemoryCache();
     MoveToHostLobby();
 }
 
@@ -62,6 +64,9 @@ void UScenarioGameInstanceBase::LeaveSessionAsClient(APlayerController* Requesti
         if (!ClientLobbyLevel.IsNull())
         {
             FString MapPath = ClientLobbyLevel.ToSoftObjectPath().GetLongPackageName();
+            // 클라이언트가 로비로 이동하기 전 메모리 초기화
+            ClearScenarioMemoryCache();
+
             TargetPC->ClientTravel(MapPath, ETravelType::TRAVEL_Absolute);
         }
         else
@@ -415,6 +420,22 @@ UTexture2D* UScenarioGameInstanceBase::CreateTextureFromBytes(const TArray<uint8
 {
     if (RawData.Num() == 0) return nullptr;
     return FImageUtils::ImportBufferAsTexture2D(RawData);
+}
+
+void UScenarioGameInstanceBase::ClearScenarioMemoryCache()
+{
+    TextureCacheMap.Empty();
+    ActiveScenarioImageMap.Empty();
+    ActiveScenarioFilePathMap.Empty();
+    ActiveImageInfos.Empty();
+    ActiveBloodTestMap.Empty();
+
+    // 연결 통로가 끊긴 가비지(UTexture2D 등)들을 즉시 수거하도록 언리얼 GC 강제 트리거
+    if (GEngine)
+    {
+        GEngine->ForceGarbageCollection(true);
+    }
+    UE_LOG(LogTemp, Log, TEXT("GameInstance: 시나리오 종료에 따른 캐시 메모리 완전 해제 완수."));
 }
 
 TArray<FResultImageInfo> UScenarioGameInstanceBase::GetActiveScenarioImageInfos() const

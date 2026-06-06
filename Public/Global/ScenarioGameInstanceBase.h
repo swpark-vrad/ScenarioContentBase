@@ -85,6 +85,10 @@ public:
     /** 로우 바이너리 바이트 배열을 컴포넌트용 CPU 텍스처 객체로 파싱 */
     UTexture2D* CreateTextureFromBytes(const TArray<uint8>& RawData);
 
+    // 로드하고 맵에 저장된 메모리 해제
+    UFUNCTION(BlueprintCallable, Category = "Scenario|Memory")
+    void ClearScenarioMemoryCache();
+
     // ======================================================================
     // 4. 혈액검사 수치 데이터 인터페이스 (Blood Test System)
     // ======================================================================

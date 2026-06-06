@@ -30,6 +30,10 @@ public:
     UFUNCTION(Client, Reliable)
     void Client_ForceMoveToClientLobby();
 
+    /** UI 위젯 버튼 클릭 시 특정 엔트리의 완료 처리를 서버에 요청하는 RPC 함수 */
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Scenario|Network")
+    void Server_RequestCompleteEntry(FGameplayTag EntryID);
+
     // ==========================================
     // 2. 시나리오 실행 및 데이터 로그 인터페이스
     // ==========================================

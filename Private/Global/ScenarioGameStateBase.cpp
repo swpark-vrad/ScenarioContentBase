@@ -2,6 +2,8 @@
 #include "Global/ScenarioGameInstanceBase.h"
 #include "Actor/ScenarioPhaseBase.h"
 #include "Actor/ScenarioEntryBase.h"
+#include "Actor/InteractionZoneBase.h"
+#include "Actor/ScenarioPatientBase.h"
 #include "Data/ScenarioDataTypes.h"
 #include "Data/ScenarioSaveGame.h"
 #include "Net/UnrealNetwork.h"
@@ -168,6 +170,27 @@ void AScenarioGameStateBase::ProcessInteractionPayload(const FInteractionPayload
     }
 }
 
+void AScenarioGameStateBase::RequestCompleteEntryByID(FGameplayTag EntryID)
+{
+    if (!HasAuthority() || !CurrentPhase) return;
+
+    // 현재 페이즈가 관리하는 실시간 활성 엔트리 목록을 안전하게 내부 검색
+    for (AScenarioEntryBase* Entry : CurrentPhase->ActiveEntries)
+    {
+        if (Entry && Entry->EntryID.MatchesTagExact(EntryID))
+        {
+            if (!Entry->bIsCompleted)
+            {
+                // 엔트리 완료 시 내부 순정 규칙에 의해 OnEntryCompleted 델리게이트가 호출되며,
+                // 이에 연동된 HandleEntryCompletedFromWorld 및 UpdateEntryUIState가 차례로 자동 실행됩니다.
+                Entry->CompleteEntry();
+                UE_LOG(LogTemp, Log, TEXT("ScenarioGS: 외부 요청에 의해 엔트리 [%s] 완료 공정을 수행했습니다."), *EntryID.ToString());
+            }
+            break;
+        }
+    }
+}
+
 void AScenarioGameStateBase::UpdateScenarioClock()
 {
     if (!HasAuthority()) return;
@@ -204,10 +227,16 @@ void AScenarioGameStateBase::HandleEntryCompletedFromWorld(AScenarioEntryBase* C
 {
     if (!CompletedEntry) return;
 
-    // 엔트리가 쏜 신호를 받아 GameState가 내부에서 안전하게 UI 배열 상태를 업데이트합니다.
-    UpdateEntryUIState(CompletedEntry->EntryName, true);
-    // 체크되었다면 체크시 호출될 델리게이트 언바인딩
+    // 1. GameState 내부에서 UI용 레플리케이션 데이터를 최우선으로 최신화합니다.
+    UpdateEntryUIState(CompletedEntry->EntryID, true);
     CompletedEntry->OnEntryCompleted.RemoveDynamic(this, &AScenarioGameStateBase::HandleEntryCompletedFromWorld);
+
+    // 2. 구조 개선: UI 상태 동기화가 완결된 확실한 시점에 현재 페이즈의 핸들러 함수를 순차적으로 직접 찔러줍니다.
+    // 이를 통해 UI가 갱신되기도 전에 페이즈가 먼저 종료되어 데이터가 꼬이는 레이스 컨디션을 원천 차단합니다.
+    if (CurrentPhase)
+    {
+        CurrentPhase->HandleEntryCompleted(CompletedEntry);
+    }
 }
 
 void AScenarioGameStateBase::NotifyDataReadyToLocalClients()
@@ -252,81 +281,67 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
     if (!HasAuthority()) return;
 
     UScenarioGameInstanceBase* GI = Cast<UScenarioGameInstanceBase>(GetGameInstance());
-    if (!GI || !EntryMasterTable || !DefaultPhaseClass)
+    if (!GI || !EntryMasterTable || !ZoneMasterTable || !DefaultPhaseClass || !DefaultPatientClass)
     {
-        UE_LOG(LogTemp, Error, TEXT("BuildEnvironment: 필수 인프라 에셋이 누락되었습니다."));
+        UE_LOG(LogTemp, Error, TEXT("BuildEnvironment: 필수 인프라 에셋 데이터 테이블 또는 환자 클래스가 누락되었습니다."));
         return;
     }
 
     ActiveScenarioID = GI->GetCurrentScenarioID();
-    if (ActiveScenarioID.IsNone())
-    {
-        UE_LOG(LogTemp, Error, TEXT("BuildEnvironment: GameInstance의 CurrentScenarioID가 비어있습니다."));
-        return;
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("========================================================================="));
-    UE_LOG(LogTemp, Log, TEXT("▶ [START] 시나리오 월드 생성 및 데이터 주입 시작 (ID: %s)"), *ActiveScenarioID.ToString());
-    UE_LOG(LogTemp, Log, TEXT("========================================================================="));
+    if (ActiveScenarioID.IsNone()) return;
 
     UScenarioSaveGame* SaveGame = GI->LoadScenarioData(ActiveScenarioID);
-    if (!SaveGame)
-    {
-        UE_LOG(LogTemp, Error, TEXT("BuildEnvironment: %s 세이브 파일을 읽어오지 못했습니다."), *ActiveScenarioID.ToString());
-        return;
-    }
+    if (!SaveGame) return;
 
     const FScenarioSaveData& ScenarioData = SaveGame->ScenarioData;
-    if (ScenarioData.Phases.Num() == 0)
+    if (ScenarioData.Phases.Num() == 0) return;
+
+    // [환자 동적 스폰 공정] 지정된 클래스를 기반으로 월드 원점에 환자 생성
+    FActorSpawnParameters PatientSpawnParams;
+    PatientSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    SpawnedPatient = GetWorld()->SpawnActor<AScenarioPatientBase>(DefaultPatientClass, FVector::ZeroVector, FRotator::ZeroRotator, PatientSpawnParams);
+
+    USkeletalMeshComponent* PatientMesh = nullptr;
+    if (SpawnedPatient)
     {
-        UE_LOG(LogTemp, Warning, TEXT("BuildEnvironment: 세이브 파일에 배치된 페이즈가 없습니다."));
+        SpawnedPatient->Tags.AddUnique(TEXT("Patient"));
+        PatientMesh = SpawnedPatient->TorsoMesh; // 메인 부모 바디로 설정된 TorsoMesh 사용
+        UE_LOG(LogTemp, Log, TEXT("GameState: 환자 베이스 액터 동적 스폰 및 데이터 바인딩 완료."));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("GameState: 환자 베이스 액터 스폰에 실패했습니다. 구역 부착을 진행할 수 없습니다."));
         return;
     }
 
-    // 환경만 구축하는 단계이므로 시작 플래그(bIsStarted) 조작 및 StartPhase 호출을 전면 제거합니다.
+    // 1. 페이즈 생성 루프 시작
     for (const FPhaseSaveData& PhaseData : ScenarioData.Phases)
     {
         FActorSpawnParameters PhaseSpawnParams;
         PhaseSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
         AScenarioPhaseBase* NewPhase = GetWorld()->SpawnActor<AScenarioPhaseBase>(DefaultPhaseClass, FVector::ZeroVector, FRotator::ZeroRotator, PhaseSpawnParams);
-        if (!NewPhase)
-        {
-            UE_LOG(LogTemp, Error, TEXT("BuildEnvironment: 페이즈 액터 스폰 실패: %s"), *PhaseData.PhaseName.ToString());
-            continue;
-        }
+        if (!NewPhase) continue;
 
         NewPhase->PhaseName = PhaseData.PhaseName;
         NewPhase->TimeLimit = PhaseData.TimeLimit;
         NewPhase->NextSuccessPhaseName = PhaseData.NextSuccessPhaseName;
         NewPhase->NextFailurePhaseName = PhaseData.NextFailurePhaseName;
 
-        UE_LOG(LogTemp, Log, TEXT("[Phase 생성] 명칭: %s (제한시간: %.1f초) | [성공시 ➡️ %s] [실패시 ➡️ %s]"),
-            *PhaseData.PhaseName.ToString(),
-            PhaseData.TimeLimit,
-            PhaseData.NextSuccessPhaseName.IsNone() ? TEXT("시나리오 종료") : *PhaseData.NextSuccessPhaseName.ToString(),
-            PhaseData.NextFailurePhaseName.IsNone() ? TEXT("시나리오 종료") : *PhaseData.NextFailurePhaseName.ToString());
-
+        // 2. 엔트리 생성 루프 시작
         for (const FEntrySaveData& SaveEntry : PhaseData.Entries)
         {
             if (SaveEntry.EntryRowName.IsNone()) continue;
 
             FScenarioEntryTableRow* RowData = EntryMasterTable->FindRow<FScenarioEntryTableRow>(SaveEntry.EntryRowName, TEXT("GameState_EntrySetup"));
-            if (!RowData || !RowData->EntryClass)
-            {
-                UE_LOG(LogTemp, Warning, TEXT("  ㄴ ❌ [Master 테이블 조회 실패] 행 이름 '%s' 데이터가 마스터 테이블에 없습니다."), *SaveEntry.EntryRowName.ToString());
-                continue;
-            }
+            if (!RowData || !RowData->EntryClass) continue;
 
             FActorSpawnParameters EntrySpawnParams;
             EntrySpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
             AScenarioEntryBase* NewEntry = GetWorld()->SpawnActor<AScenarioEntryBase>(RowData->EntryClass, FVector::ZeroVector, FRotator::ZeroRotator, EntrySpawnParams);
-            if (!NewEntry)
-            {
-                UE_LOG(LogTemp, Error, TEXT("  ㄴ ❌ [스폰 실패] 엔트리 액터 인스턴스 생성 실패: %s"), *SaveEntry.EntryRowName.ToString());
-                continue;
-            }
+            if (!NewEntry) continue;
 
             NewEntry->EntryID = RowData->EntryID;
             NewEntry->EntryName = SaveEntry.EntryRowName;
@@ -334,23 +349,83 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
             NewEntry->TargetExecutionCount = RowData->TargetExecutionCount;
             NewEntry->TargetInteractionTag = RowData->TargetInteractionTag;
 
-            // Zone 관련 로직을 제거하고, 기존 함수 호환성을 위해 nullptr을 대입합니다.
-            NewEntry->InitializeEntry(NewPhase, nullptr);
+            // 3. EntryID 태그 매칭을 통한 Zone 동적 스폰 및 환자 소켓 연동
+            AInteractionZoneBase* MatchedZone = nullptr;
+
+            TArray<FZoneSpawnRow*> AllZoneRows;
+            ZoneMasterTable->GetAllRows<FZoneSpawnRow>(TEXT("GameState_ZoneScan"), AllZoneRows);
+
+            for (FZoneSpawnRow* ZoneRow : AllZoneRows)
+            {
+                if (ZoneRow && ZoneRow->EntryID.MatchesTagExact(RowData->EntryID))
+                {
+                    if (!ZoneRow->ZoneClass.IsNull())
+                    {
+                        UClass* LoadedZoneClass = ZoneRow->ZoneClass.LoadSynchronous();
+                        if (LoadedZoneClass)
+                        {
+                            FTransform InitialTransform = FTransform::Identity;
+                            // 안보이는 위치에 스폰
+                            InitialTransform.SetLocation(FVector(0.0f,0.0f,-10000.0f));
+                            if (PatientMesh && !ZoneRow->ZoneData.TargetSocket.IsNone())
+                            {
+                                InitialTransform = PatientMesh->GetSocketTransform(ZoneRow->ZoneData.TargetSocket);
+                            }
+
+                            // 지연 스폰 가동
+                            MatchedZone = GetWorld()->SpawnActorDeferred<AInteractionZoneBase>(
+                                LoadedZoneClass,
+                                InitialTransform,
+                                this,
+                                nullptr,
+                                ESpawnActorCollisionHandlingMethod::AlwaysSpawn
+                            );
+
+                            if (MatchedZone)
+                            {
+                                // 데이터 주입 및 스폰 완료 공정 진행
+                                MatchedZone->ZoneData = ZoneRow->ZoneData;
+                                MatchedZone->FinishSpawning(InitialTransform);
+
+                                // 환자의 스켈레탈 메시 소켓 위치에 구역 액터를 종속시킴
+                                if (PatientMesh && !ZoneRow->ZoneData.TargetSocket.IsNone())
+                                {
+                                    FAttachmentTransformRules AttachRules(
+                                        EAttachmentRule::SnapToTarget,
+                                        EAttachmentRule::SnapToTarget,
+                                        EAttachmentRule::KeepWorld,
+                                        false
+                                    );
+                                    MatchedZone->AttachToComponent(PatientMesh, AttachRules, ZoneRow->ZoneData.TargetSocket);
+
+                                    // 테이블에 설정된 미세 오프셋 상대 좌표계 반영
+                                    MatchedZone->SetActorRelativeTransform(ZoneRow->ZoneData.RelativeOffset);
+                                }
+
+                                FName UniqueZoneKey = FName(*(RowData->EntryID.ToString() + TEXT("_Zone")));
+                                GlobalActiveZones.Add(UniqueZoneKey, MatchedZone);
+                                NewPhase->ActiveZones.Add(UniqueZoneKey, MatchedZone);
+
+                                UE_LOG(LogTemp, Log, TEXT("GameState: [Zone 동적 결합] 매칭 태그: %s -> 환자 소켓 부착 완료: %s"),
+                                    *RowData->EntryID.ToString(), *ZoneRow->ZoneData.TargetSocket.ToString());
+
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // 구역 연동 데이터 엔트리에 최종 전달
+            NewEntry->InitializeEntry(NewPhase, MatchedZone);
 
             NewPhase->ActiveEntries.Add(NewEntry);
-
-            // 로그 출력문에서 구역 표시 정보를 지우고 간소화합니다.
-            UE_LOG(LogTemp, Log, TEXT("  ㄴ 🟢 [Entry 추가 완료] 명칭: %s | 필수: %s | 목표 횟수: %d회"),
-                *SaveEntry.EntryRowName.ToString(),
-                SaveEntry.bIsMandatory ? TEXT("필수(Mandatory)") : TEXT("옵션(Optional)"),
-                RowData->TargetExecutionCount);
         }
 
         ScenarioPhases.Add(NewPhase);
     }
 
     UE_LOG(LogTemp, Log, TEXT("========================================================================="));
-    UE_LOG(LogTemp, Log, TEXT("▶ [SUCCESS] 모든 가상 환경 조립 완료. 사용자의 시작 명령을 대기합니다."));
+    UE_LOG(LogTemp, Log, TEXT("GameState: 모든 가상 환경 조립 및 동적 환자 생성, 신체 소켓 구역 빌드 완료."));
     UE_LOG(LogTemp, Log, TEXT("========================================================================="));
 }
 
@@ -414,10 +489,11 @@ void AScenarioGameStateBase::StartPhaseByName(FName PhaseName)
     ActiveEntryMap.Empty();
     for (AScenarioEntryBase* Entry : CurrentPhase->ActiveEntries)
     {
-        if (Entry && !Entry->EntryID.IsValid())
+        if (Entry && Entry->EntryID.IsValid())
         {
-            // 엔트리가 가진 고유 GameplayTag를 Key로 삼아 맵에 캐싱합니다.
             ActiveEntryMap.Add(Entry->EntryID, Entry);
+
+            // GS의 UI 갱신 함수 바인딩
             Entry->OnEntryCompleted.AddDynamic(this, &AScenarioGameStateBase::HandleEntryCompletedFromWorld);
         }
     }
@@ -530,6 +606,7 @@ void AScenarioGameStateBase::InitializePhaseEntryDatas()
         if (Entry)
         {
             FScenarioEntryUIData UIData;
+            UIData.EntryID = Entry->EntryID;
             UIData.EntryName = Entry->EntryName;
             UIData.bIsMandatory = Entry->bIsMandatory;
             UIData.bIsCompleted = false;
@@ -542,7 +619,7 @@ void AScenarioGameStateBase::InitializePhaseEntryDatas()
     OnRep_CurrentEntryDatas();
 }
 
-void AScenarioGameStateBase::UpdateEntryUIState(FName EntryName, bool bCompleted)
+void AScenarioGameStateBase::UpdateEntryUIState(FGameplayTag EntryID, bool bCompleted)
 {
     if (!HasAuthority()) return;
 
@@ -550,7 +627,7 @@ void AScenarioGameStateBase::UpdateEntryUIState(FName EntryName, bool bCompleted
 
     for (FScenarioEntryUIData& UIData : CurrentEntryDatas)
     {
-        if (UIData.EntryName == EntryName)
+        if (UIData.EntryID.MatchesTagExact(EntryID))
         {
             UIData.bIsCompleted = bCompleted;
 
@@ -581,4 +658,34 @@ void AScenarioGameStateBase::OnRep_CurrentEntryDatas()
     {
         OnEntryDatasUpdated.Broadcast();
     }
+}
+
+void AScenarioGameStateBase::ActivatePatient_Implementation(USceneComponent* InParentComponent)
+{
+    // 스폰되어 대기 중인 환자 액터가 정상적으로 존재하는지 검증
+    if (!SpawnedPatient)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ActivatePatient: 가상 환경에 스폰된 환자(SpawnedPatient)가 존재하지 않습니다."));
+        return;
+    }
+
+    // 환자를 부착시킬 침대나 특정 구역의 부모 컴포넌트 유효성 검증
+    if (!InParentComponent)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ActivatePatient: 파라미터로 전달된 InParentComponent가 nullptr입니다. 부착을 취소합니다."));
+        return;
+    }
+
+    // 부착 규칙 수립: 부모 컴포넌트의 위치와 회전에 강제로 일치시킴
+    FAttachmentTransformRules AttachRules(
+        EAttachmentRule::SnapToTarget, // 위치 스냅
+        EAttachmentRule::SnapToTarget, // 회전 스냅
+        EAttachmentRule::KeepWorld,    // 메시 왜곡 방지를 위해 스케일은 월드 값 유지
+        false
+    );
+
+    // 총괄 관리자인 GameState가 명령을 내려 환자 액터 본체를 부모 컴포넌트에 하위 종속시킵니다.
+    SpawnedPatient->AttachToComponent(InParentComponent, AttachRules);
+
+    UE_LOG(LogTemp, Log, TEXT("GameState: 환자를 지정된 컴포넌트에 배치하고 시나리오 내 활성화를 완료했습니다."));
 }

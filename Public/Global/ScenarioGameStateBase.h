@@ -8,6 +8,7 @@
 class AScenarioPhaseBase;
 class AScenarioEntryBase;
 class AInteractionZoneBase;
+class AScenarioPatientBase;
 class APlayerState;
 
 // 델리게이트
@@ -76,7 +77,7 @@ public:
 
     UFUNCTION()
     void OnRep_ActiveScenarioID();
-
+    
     UPROPERTY(Replicated, BlueprintReadOnly, Category = "Scenario|Time")
     FDateTime StartDateTime;
 
@@ -103,6 +104,13 @@ public:
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|Control")
     void ProcessInteractionPayload(const FInteractionPayload& Payload);
 
+    UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|Control")
+    void RequestCompleteEntryByID(FGameplayTag EntryID);
+
+    UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Scenario|Lifecycle")
+    void ActivatePatient(USceneComponent* InParentComponent);
+    virtual void ActivatePatient_Implementation(USceneComponent* InParentComponent);
+
 protected:
     FTimerHandle ClockTimerHandle;
 
@@ -116,9 +124,21 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
     class UDataTable* EntryMasterTable;
 
+    // 에디터에서 지정할 마스터 구역 데이터 테이블 (DT_ZoneMaster)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
+    class UDataTable* ZoneMasterTable;
+
     // 데이터 기반 페이즈 액터를 동적 생성하기 위한 기본 페이즈 클래스 (BP_Phase_Base)
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
     TSubclassOf<AScenarioPhaseBase> DefaultPhaseClass;
+
+    // 에디터 디테일 패널에서 지정할 환자 스폰 클래스 변수 추가
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
+    TSubclassOf<AScenarioPatientBase> DefaultPatientClass;
+
+    // 런타임에 스폰된 환자 액터의 포인터를 보관할 변수 (가비지 컬렉션 방지용 UPROPERTY)
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Scenario|Runtime")
+    AScenarioPatientBase* SpawnedPatient;
 
     UFUNCTION()
     void HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry);
@@ -200,5 +220,5 @@ public:
     void InitializePhaseEntryDatas();
 
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|UI")
-    void UpdateEntryUIState(FName EntryName, bool bCompleted);
+    void UpdateEntryUIState(FGameplayTag EntryID, bool bCompleted);
 };
