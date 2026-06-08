@@ -73,7 +73,7 @@ public:
 	// 요구사항 2. 호스트 및 클라이언트 전체 전파용 모프 타겟 RPC 시스템
 	// ======================================================================
 	/** 외부(도구/컨트롤러)에서 환자의 모프 타겟 조작을 요청할 때 가동하는 런타임 입구 함수 */
-	UFUNCTION(BlueprintCallable, Category = "Patient|Morph")
+	UFUNCTION(BlueprintCallable, Category = "Patient|Visuals")
 	void RequestSetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
 
 protected:
@@ -85,6 +85,14 @@ protected:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_SetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
 
+	UFUNCTION(BlueprintCallable, Category = "Patient|Morph")
+	void Local_SetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
+
+	// 레이트 조이너 및 데이터 변동 시 현재 태그 컨테이너를 기반으로 외형을 강제 동기화하는 핵심 함수입니다.
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Patient|Visuals")
+	void RefreshPatientVisuals();
+	virtual void RefreshPatientVisuals_Implementation();
+
 private:
 	/** 내부 헬퍼: 열거형 분기를 통해 타겟팅된 메시 컴포넌트의 주소 포인터를 반환 */
 	USkeletalMeshComponent* GetMeshComponentByType(EPatientMeshType MeshType) const;
@@ -94,10 +102,12 @@ private:
 	// ======================================================================
 public:
 	/** 환자 본인에게 영구 누적 적용된 처치(술기) 태그 컨테이너 (레이트 조이너 유저도 리플리케이션 자동 동기화) */
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Patient|Treatment")
+	UPROPERTY(ReplicatedUsing = OnRep_AppliedTreatments, BlueprintReadOnly, Category = "Patient|Treatment")
 	FGameplayTagContainer AppliedTreatments;
 
-	/** 새로운 처치가 성공적으로 안착할 때마다 전체 머신에서 브로드캐스트되는 이벤트 핀 */
+	UFUNCTION()
+	void OnRep_AppliedTreatments();
+
 	UPROPERTY(BlueprintAssignable, Category = "Patient|Events")
 	FOnTreatmentAppliedSignature OnTreatmentApplied;
 

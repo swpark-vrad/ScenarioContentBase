@@ -20,25 +20,10 @@ class SCENARIOCONTENT_API AInteractionZoneBase : public AActor
 public:
 	AInteractionZoneBase();
 
-protected:
-	virtual void BeginPlay() override;
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	// 충돌 비활성화 및 메모리 누수를 막기 위한 변수 초기화
+	UFUNCTION(BlueprintCallable, Category = "Zone|Control")
+	virtual void DeactivateAndShutdown();
 
-	// ZoneData 동기화용 RepNotify 함수
-	UFUNCTION()
-	virtual void OnRep_ZoneData();
-
-	/** 충돌한 액터가 유효한 도구인지 검사하고 페이로드를 조립하여 반환하는 Native Event (BP 오버라이드 가능) */
-	UFUNCTION(BlueprintNativeEvent, Category = "Zone|Interaction")
-	bool CheckAndBuildPayload(AActor* OtherActor, FInteractionPayload& OutPayload);
-
-	/** 하위 상속 클래스들이 조립 완료된 페이로드를 안전하게 방송할 수 있도록 캡슐화된 통로 함수 */
-	void BroadcastInteractionTriggered(const FInteractionPayload& Payload);
-
-	/** [★ 추가] 진입한 액터가 인터페이스를 구현했는지, 필터 태그에 합격했는지 C++ 단에서 초고속 검사하는 방어 함수 */
-	bool IsValidInteractableActor(AActor* OtherActor) const;
-
-public:
 	// ==========================================
 	// 컴포넌트
 	// ==========================================
@@ -57,4 +42,34 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Zone|Events")
 	FOnInteractionTriggered OnInteractionTriggered;
+
+protected:
+	virtual void BeginPlay() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	// ZoneData 동기화용 RepNotify 함수
+	UFUNCTION()
+	virtual void OnRep_ZoneData();
+
+	/** 충돌한 액터가 유효한 도구인지 검사하고 페이로드를 조립하여 반환하는 Native Event (BP 오버라이드 가능) */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interaction|Zone")
+	bool CheckAndBuildPayload(AActor* OtherActor, FInteractionPayload& OutPayload);
+
+	virtual bool CheckAndBuildPayload_Implementation(AActor* OtherActor, FInteractionPayload& OutPayload);
+
+	// 인터랙션 통과하는 경우 델리게이트 전파할 함수
+	UFUNCTION(BlueprintCallable, Category = "Zone|Interaction")
+	virtual void BroadcastInteractionTriggered(const FInteractionPayload& Payload);
+
+	/** [★ 추가] 진입한 액터가 인터페이스를 구현했는지, 필터 태그에 합격했는지 C++ 단에서 초고속 검사하는 방어 함수 */
+	bool IsValidInteractableActor(AActor* OtherActor) const;
+
+	// 구역의 셧다운 상태를 모든 클라이언트에 동기화하기 위한 복제 변수입니다.
+	UPROPERTY(ReplicatedUsing = OnRep_bIsShutdown, BlueprintReadOnly, Category = "Zone|State")
+	bool bIsShutdown = false;
+
+	// 셧다운 변수가 복제되었을 때 콜리전과 가시성을 정리하는 RepNotify 함수입니다.
+	UFUNCTION()
+	virtual void OnRep_bIsShutdown();
+
 };

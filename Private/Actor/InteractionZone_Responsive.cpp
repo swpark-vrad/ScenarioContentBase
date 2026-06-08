@@ -34,10 +34,6 @@ void AInteractionZone_Responsive::OnBoxOverlapBegin(UPrimitiveComponent* Overlap
 	APlayerState* EnteringPlayer = GetPlayerStateFromActor(OtherActor);
 	if (!EnteringPlayer) return;
 
-	// 풀 블루프린트 프레임워크 에셋 호환용 1차 필터링 검사 (유효 도구가 맞을 때만 후속 처리 진입)
-	FInteractionPayload DummyPayload;
-	if (!CheckAndBuildPayload(OtherActor, DummyPayload)) return;
-
 	// [선점형 소유권 락 연산]
 	if (ActiveTrackingPlayer == nullptr)
 	{
@@ -140,7 +136,6 @@ void AInteractionZone_Responsive::OnBoxOverlapEnd(UPrimitiveComponent* Overlappe
 		{
 			// 구역 내에 진짜 아무도 남지 않은 경우에만 비로소 타이머를 완전히 끄고 락 해제 단행
 			GetWorldTimerManager().ClearTimer(ResponsiveTrackTimerHandle);
-			UE_LOG(LogTemp, Log, TEXT("Zone_Responsive: 유저 [%s]가 영역을 완전히 이탈하여 소유권 락을 완전히 해제합니다."), *ActiveTrackingPlayer->GetPlayerName());
 
 			ActiveTrackingPlayer = nullptr;
 			CurrentPlayerOverlapCount = 0;
@@ -185,8 +180,8 @@ void AInteractionZone_Responsive::OnResponsiveTrackTick()
 	const FScenarioGameplayTags& GameplayTags = FScenarioGameplayTags::Get();
 
 	// 블루프린트 프레임워크 구조가 Payload.InteractionTag 또는 데이터 딕셔너리에 실어 보낸 실시간 버튼 인풋 적재 판단
-	bool bIsGrabbing = CurrentPayload.InteractionTag.MatchesTag(GameplayTags.InputState_Grab) || CurrentPayload.AdditionalData.Contains(GameplayTags.InputState_Grab);
-	bool bIsTriggering = CurrentPayload.InteractionTag.MatchesTag(GameplayTags.InputState_Trigger) || CurrentPayload.AdditionalData.Contains(GameplayTags.InputState_Trigger);
+	bool bIsGrabbing = CurrentPayload.InteractionTags.HasTag(GameplayTags.InputState_Grab) || CurrentPayload.AdditionalData.Contains(GameplayTags.InputState_Grab);
+	bool bIsTriggering = CurrentPayload.InteractionTags.HasTag(GameplayTags.InputState_Trigger) || CurrentPayload.AdditionalData.Contains(GameplayTags.InputState_Trigger);
 
 	// =================================================================
 	// 상태 천이(Edge Detection) 알고리즘을 통한 6대 반응형 순간 정밀 분기
@@ -196,9 +191,6 @@ void AInteractionZone_Responsive::OnResponsiveTrackTick()
 	if (!PreviousInputTags.HasTagExact(GameplayTags.InputState_Grab) && bIsGrabbing)
 	{
 		OnGrabPressed.Broadcast(CurrentPayload);
-
-		// 데이터 테이블에서 이 구역을 그랩 원샷 미션으로 정의했다면 즉시 전체 강제 셧다운
-		if (ZoneData.bIsOneShot) { DeactivateAndShutdown(); return; }
 	}
 	else if (PreviousInputTags.HasTagExact(GameplayTags.InputState_Grab) && bIsGrabbing)
 	{
@@ -213,9 +205,6 @@ void AInteractionZone_Responsive::OnResponsiveTrackTick()
 	if (!PreviousInputTags.HasTagExact(GameplayTags.InputState_Trigger) && bIsTriggering)
 	{
 		OnTriggerPressed.Broadcast(CurrentPayload);
-
-		// 데이터 테이블에서 이 구역을 트리거(가위질 등) 원샷 미션으로 정의했다면 즉시 전체 강제 셧다운
-		if (ZoneData.bIsOneShot) { DeactivateAndShutdown(); return; }
 	}
 	else if (PreviousInputTags.HasTagExact(GameplayTags.InputState_Trigger) && bIsTriggering)
 	{
@@ -253,22 +242,44 @@ APlayerState* AInteractionZone_Responsive::GetPlayerStateFromActor(AActor* InAct
 	return nullptr;
 }
 
+void AInteractionZone_Responsive::BroadcastInteractionTriggered(const FInteractionPayload& Payload)
+{
+	Super::BroadcastInteractionTriggered(Payload);
+
+	if (ZoneData.bIsSingleUse && CollisionBox)
+	{
+		// 콜리전을 완전히 꺼버림으로써 엔진 내부 오버랩 바인딩 목록에서 소멸시킵니다. (두 번 다시 체크 안 함)
+		DeactivateAndShutdown();
+
+		UE_LOG(LogTemp, Log, TEXT("Zone_Instant: [One-Shot 완결] 일회성 구역 미션이 완수되어 물리 콜리전 및 바인딩이 영구 비활성화되었습니다."));
+	}
+
+}
+
 void AInteractionZone_Responsive::DeactivateAndShutdown()
 {
-	GetWorldTimerManager().ClearTimer(ResponsiveTrackTimerHandle);
+	if (!HasAuthority()) return;
 
-	// 2. 물리 콜리전 완전 비활성화 및 델리게이트 바인딩 해제
+	PreviousInputTags.Reset();
+
 	if (CollisionBox)
 	{
-		CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		// 델리게이트를 먼저 해제하므로, 아래에서 콜리전이 꺼질 때 
+		// 물리 엔진이 EndOverlap 신호를 보내도 OnBoxOverlapEnd 함수가 아예 실행되지 않습니다.
 		CollisionBox->OnComponentBeginOverlap.RemoveDynamic(this, &AInteractionZone_Responsive::OnBoxOverlapBegin);
 		CollisionBox->OnComponentEndOverlap.RemoveDynamic(this, &AInteractionZone_Responsive::OnBoxOverlapEnd);
 	}
 
-	// 3. 소유권 락 변수 및 내부 버퍼 완전 공장 초기화 (메모리 릭 방지)
+	// ----------------------------------------------------------------------
+	// 이제 안전하게 부모를 호출하여 콜리전 및 메쉬를 비활성화합니다.
+	// ----------------------------------------------------------------------
+	Super::DeactivateAndShutdown();
+
+	// 2. 나머지 고유 타이머 및 자원 정리
+	GetWorldTimerManager().ClearTimer(ResponsiveTrackTimerHandle);
+
 	ActiveTrackingPlayer = nullptr;
 	CurrentPlayerOverlapCount = 0;
-	PreviousInputTags.Reset();
 
-	UE_LOG(LogTemp, Log, TEXT("Zone_Responsive: [Responsive 원샷 완결] 입력 성공에 따라 물리 및 타이머가 강제 셧다운되었습니다."));
+	UE_LOG(LogTemp, Log, TEXT("Zone_Responsive: [Responsive 오버라이드 완결] 반응형 고유 자원 정리를 완료했습니다."));
 }

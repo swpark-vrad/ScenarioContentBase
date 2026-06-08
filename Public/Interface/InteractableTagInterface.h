@@ -23,5 +23,5 @@ public:
 
 	/** 도구나 폰의 현재 실시간 상태 태그를 반환 (예: InputState.Grab, InputState.Trigger, InputState.None) */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Scenario|Interface")
-	FGameplayTag GetStateTag() const;
+	FGameplayTagContainer GetStateTags() const;
 };

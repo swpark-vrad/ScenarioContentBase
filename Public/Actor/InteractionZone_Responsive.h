@@ -37,9 +37,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Zone|ResponsiveEvents")
 	FOnResponsiveInputSignature OnTriggerReleased;
 
-	// 충돌 비활성화 및 메모리 누수를 막기 위한 변수 초기화
-	UFUNCTION(BlueprintCallable, Category = "Zone|Control")
-	void DeactivateAndShutdown();
+	virtual void DeactivateAndShutdown() override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -56,6 +54,8 @@ protected:
 
 	/** 액터 소유권 체인을 정밀 역추적하여 상위 VR 유저의 최상위 PlayerState 주소를 반환하는 내부 헬퍼 */
 	APlayerState* GetPlayerStateFromActor(AActor* InActor) const;
+
+	virtual void BroadcastInteractionTriggered(const FInteractionPayload& Payload) override;
 
 	// [선점형 소유권 락] 현재 이 구역을 독점 선점하여 작업 중인 마스터 유저 정보
 	UPROPERTY()

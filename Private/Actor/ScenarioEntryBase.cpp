@@ -35,7 +35,7 @@ void AScenarioEntryBase::InitializeEntry(AScenarioPhaseBase* InOwnerPhase, AInte
 
 	if (TargetZone)
 	{
-		TargetZone->OnInteractionTriggered.AddDynamic(this, &AScenarioEntryBase::ProcessPayload);
+		TargetZone->OnInteractionTriggered.AddDynamic(this, &AScenarioEntryBase::BroadcastProcessPayload);
 	}
 }
 
@@ -47,6 +47,7 @@ void AScenarioEntryBase::StartEntry()
 	if (!HasAuthority() || bIsCompleted) return;
 
 	bIsActive = true;
+	CompleteEntry();
 	ReceiveStartEntry(); // BP 이벤트 호출
 }
 
@@ -63,28 +64,33 @@ void AScenarioEntryBase::ReceiveStartEntry_Implementation() {}
 void AScenarioEntryBase::ReceiveEndEntry_Implementation() {}
 // =====================================
 
-void AScenarioEntryBase::ProcessPayload(const FInteractionPayload& Payload)
+void AScenarioEntryBase::BroadcastProcessPayload(const FInteractionPayload& Payload)
 {
 	// [핵심 변경] 활성화(bIsActive) 상태가 아니거나 이미 끝났으면 심사하지 않고 무시함
-	if (!HasAuthority() || !bIsActive || bIsCompleted) return;
+	if (!HasAuthority()) return;
 
-	if (CheckSuccessCondition(Payload))
+	ProcessPayload(Payload);
+
+	if (CheckTargetInteraction(Payload))
 	{
+		CurrentExecutionCount++;
 		CompleteEntry();
 	}
 }
 
-bool AScenarioEntryBase::CheckSuccessCondition_Implementation(const FInteractionPayload& Payload) const
+void AScenarioEntryBase::ProcessPayload_Implementation(const FInteractionPayload& Payload)
 {
-	return Payload.InteractionTag.MatchesTag(TargetInteractionTag);
+}
+
+bool AScenarioEntryBase::CheckTargetInteraction_Implementation(const FInteractionPayload& Payload) const
+{
+	return Payload.InteractionTags.HasTag(TargetInteractionTag);
 }
 
 void AScenarioEntryBase::CompleteEntry()
 {
-	if (HasAuthority() && !bIsCompleted)
+	if (HasAuthority() && bIsActive && !bIsCompleted)
 	{
-		CurrentExecutionCount++;
-
 		if (CurrentExecutionCount >= TargetExecutionCount)
 		{
 			bIsCompleted = true;
@@ -97,4 +103,25 @@ void AScenarioEntryBase::CompleteEntry()
 			OnEntryCompleted.Broadcast(this);
 		}
 	}
+}
+
+void AScenarioEntryBase::ForceToCompleteEntry()
+{
+	// 무조건 서버 권한을 가졌고, 이미 완료된 엔트리가 아닐 때만 강제 변조를 허용합니다.
+	if (!HasAuthority() || bIsCompleted) return;
+
+	// 1. 강제 패스이므로 현재 카운트 수치를 목표치와 강제로 일치시킵니다. (UI 표현 및 데이터 일관성)
+	CurrentExecutionCount = TargetExecutionCount;
+
+	// 2. 완수 플래그를 즉시 참으로 변경합니다.
+	bIsCompleted = true;
+
+	// 3. bIsActive 여부와 상관없이 이 엔트리의 심사 상태를 강제 종료합니다.
+	EndEntry();
+
+	// 4. 로컬 호스트 화면 반영 및 상위 페이즈 시스템으로 성공 신호를 즉시 전송합니다.
+	OnRep_IsCompleted();
+	OnEntryCompleted.Broadcast(this);
+
+	UE_LOG(LogTemp, Warning, TEXT("Entry: [%s] 엔트리가 관리자 요청에 의해 강제 성공 처리되었습니다."), *EntryName.ToString());
 }

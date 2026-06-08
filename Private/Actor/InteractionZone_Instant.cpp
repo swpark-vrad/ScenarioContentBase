@@ -39,11 +39,10 @@ void AInteractionZone_Instant::OnBoxOverlap(UPrimitiveComponent* OverlappedCompo
 		BroadcastInteractionTriggered(AssembledPayload);
 
 		// 진짜 일회성 전용 엔트리라면 충돌 처리 직후 물리엔진 레벨에서 차단
-		if (ZoneData.bIsOneShot && CollisionBox)
+		if (ZoneData.bIsSingleUse && CollisionBox)
 		{
 			// 콜리전을 완전히 꺼버림으로써 엔진 내부 오버랩 바인딩 목록에서 소멸시킵니다. (두 번 다시 체크 안 함)
-			CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-			CollisionBox->OnComponentBeginOverlap.RemoveDynamic(this, &AInteractionZone_Instant::OnBoxOverlap);
+			DeactivateAndShutdown();
 
 			UE_LOG(LogTemp, Log, TEXT("Zone_Instant: [One-Shot 완결] 일회성 구역 미션이 완수되어 물리 콜리전 및 바인딩이 영구 비활성화되었습니다."));
 		}

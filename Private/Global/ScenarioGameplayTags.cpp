@@ -13,6 +13,7 @@ void FScenarioGameplayTags::InitializeNativeTags()
 	Tags.Interaction = Manager.AddNativeGameplayTag(FName("Interaction"), TEXT("행동 루트"));
 	Tags.Object = Manager.AddNativeGameplayTag(FName("Object"), TEXT("도구 루트"));
 	Tags.Zone = Manager.AddNativeGameplayTag(FName("Zone"), TEXT("존 루트"));
+	Tags.Treatment = Manager.AddNativeGameplayTag(FName("Treatment"), TEXT("처치 루트"));
 
 	Tags.Object_Hand = Manager.AddNativeGameplayTag(FName("Object.Hand"), TEXT("손"));
 	Tags.Object_Hand_R = Manager.AddNativeGameplayTag(FName("Object.Hand.Right"), TEXT("오른손"));

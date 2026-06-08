@@ -65,6 +65,7 @@ void AScenarioPatientBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	RefreshPatientVisuals();
 }
 
 void AScenarioPatientBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -97,13 +98,7 @@ void AScenarioPatientBase::Server_SetMorphTarget_Implementation(EPatientMeshType
 
 void AScenarioPatientBase::Multicast_SetMorphTarget_Implementation(EPatientMeshType MeshType, FName MorphTargetName, float Value)
 {
-	// 이 내부 연산은 호스트PC 및 원격 클라이언트 컴퓨터들의 로컬 뷰포트 스레드에서 실시간 동시 처리됨
-	if (USkeletalMeshComponent* TargetMesh = GetMeshComponentByType(MeshType))
-	{
-		TargetMesh->SetMorphTarget(MorphTargetName, Value);
-		UE_LOG(LogTemp, Log, TEXT("Patient: [%d]번 파트 메시의 모프타겟 '%s' 수치가 %.2f 로 전체 동기화되었습니다."),
-			static_cast<int32>(MeshType), *MorphTargetName.ToString(), Value);
-	}
+	Local_SetMorphTarget(MeshType,MorphTargetName,Value);
 }
 
 USkeletalMeshComponent* AScenarioPatientBase::GetMeshComponentByType(EPatientMeshType MeshType) const
@@ -131,11 +126,36 @@ void AScenarioPatientBase::ApplyTreatment(FGameplayTag TreatmentTag, const FTrea
 		AppliedTreatments.AddTag(TreatmentTag);
 	}
 
-	// 2. 새로운 술기 적용이 전파 완료 되었으므로, 환자를 관찰 중인 호스트 화면 및 서버 리스너 위젯을 갱신하도록 방송
+	RefreshPatientVisuals();
+
 	if (OnTreatmentApplied.IsBound())
 	{
 		OnTreatmentApplied.Broadcast(TreatmentTag, AdditionalOptions);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("Patient: 환자 본체에 새로운 처치 상태 데이터가 영구 적재되었습니다. (태그 명칭: %s)"), *TreatmentTag.ToString());
+}
+
+void AScenarioPatientBase::OnRep_AppliedTreatments()
+{
+	// 1. 전달받은 최신 태그 상태를 기반으로 모든 클라이언트의 환자 메쉬/모프 외형을 전수 갱신합니다.
+	RefreshPatientVisuals();
+}
+
+void AScenarioPatientBase::RefreshPatientVisuals_Implementation()
+{
+	// 부모 단에서는 공통 처리할 디폴트 에셋 로직이 없으므로 비워둡니다.
+}
+
+void AScenarioPatientBase::Local_SetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value)
+{
+	// 기존 내부 내장 헬퍼 함수를 통해 열거형에 해당하는 메시 컴포넌트 포인터를 안전하게 획득합니다.
+	if (USkeletalMeshComponent* TargetMesh = GetMeshComponentByType(MeshType))
+	{
+		// RPC 패킷을 보내지 않고, 오직 이 함수가 실행 중인 현재 PC 화면의 모프 타겟만 변경합니다.
+		TargetMesh->SetMorphTarget(MorphTargetName, Value);
+
+		UE_LOG(LogTemp, Log, TEXT("Patient: 로컬 연출 처리 - [%d]번 파트 메시의 모프타겟 '%s' 수치가 %.2f 로 변경되었습니다."),
+			static_cast<int32>(MeshType), *MorphTargetName.ToString(), Value);
+	}
 }

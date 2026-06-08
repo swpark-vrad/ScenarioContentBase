@@ -160,7 +160,7 @@ void AScenarioGameStateBase::ProcessInteractionPayload(const FInteractionPayload
         if (Entry->EntryID == Payload.UniqueID)
         {
             // 아직 미완료 상태이고, 해당 엔트리의 고유 성공 조건(오버라이드 함수)을 통과하면 완료 처리합니다.
-            if (!Entry->bIsCompleted && Entry->CheckSuccessCondition(Payload))
+            if (!Entry->bIsCompleted && Entry->CheckTargetInteraction(Payload))
             {
                 Entry->CompleteEntry();
             }
@@ -184,7 +184,7 @@ void AScenarioGameStateBase::RequestCompleteEntryByID(FGameplayTag EntryID)
             {
                 // 엔트리 완료 시 내부 순정 규칙에 의해 OnEntryCompleted 델리게이트가 호출되며,
                 // 이에 연동된 HandleEntryCompletedFromWorld 및 UpdateEntryUIState가 차례로 자동 실행됩니다.
-                Entry->CompleteEntry();
+                Entry->ForceToCompleteEntry();
                 UE_LOG(LogTemp, Log, TEXT("ScenarioGS: 외부 요청에 의해 엔트리 [%s] 완료 공정을 수행했습니다."), *EntryID.ToString());
             }
             break;
@@ -297,7 +297,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
     const FScenarioSaveData& ScenarioData = SaveGame->ScenarioData;
     if (ScenarioData.Phases.Num() == 0) return;
 
-    // [환자 동적 스폰 공정] 지정된 클래스를 기반으로 월드 원점에 환자 생성
+    // 지정된 클래스를 기반으로 월드 원점에 환자 생성
     FActorSpawnParameters PatientSpawnParams;
     PatientSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
@@ -350,16 +350,14 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
             NewEntry->TargetExecutionCount = RowData->TargetExecutionCount;
             NewEntry->TargetInteractionTag = RowData->TargetInteractionTag;
 
-            // ==========================================================================================
-            // [★ 구조 적용 구간] 3. 신규 FZoneDataWarpper 규격 기반 하이브리드 공간 조립 공정
-            // ==========================================================================================
-            AInteractionZoneBase* MatchedZone = nullptr;
+            // 구역 데이터 검색 전 엔트리의 기본 페이즈 오너 연결을 최우선 수행합니다.
+            NewEntry->InitializeEntry(NewPhase, nullptr);
 
+            // 3. 신규 FZoneDataWrapper 규격 기반 하이브리드 공간 조립 공정
             FZoneSpawnRow* ZoneRow = ZoneMasterTable->FindRow<FZoneSpawnRow>(SaveEntry.EntryRowName, TEXT("GameState_ZoneSetup"));
 
             if (ZoneRow)
             {
-                // 제공해주신 래퍼 구조체 배열 순회 시작
                 for (const FZoneDataWarpper& Wrapper : ZoneRow->ZoneDatas)
                 {
                     TSoftClassPtr<AInteractionZoneBase> SoftClassToSpawn = Wrapper.ZoneClass;
@@ -386,13 +384,11 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                             }
                             case EZoneAnchorType::StaticWorld:
                             {
-                                // 세계 절대 좌표 고정: RelativeOffset 데이터를 세계 절대값 트랜스폼으로 해석
                                 InitialTransform = Wrapper.ZoneData.RelativeOffset;
                                 break;
                             }
                             case EZoneAnchorType::AttachedObject:
                             {
-                                // GetAllActorsWithTag를 원천 배제하고, 순정 ActorHasTag 쿼리로 안전하게 필터링 수집
                                 if (!Wrapper.AnchorObjectTag.IsNone())
                                 {
                                     TArray<AActor*> AllActors;
@@ -400,12 +396,10 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
 
                                     for (AActor* Actor : AllActors)
                                     {
-                                        // 월드 에셋 중 디테일 창 [Actor Tags]에 해당 FName이 박혀있는 타겟 오브젝트 검출
                                         if (Actor && Actor->ActorHasTag(Wrapper.AnchorObjectTag))
                                         {
                                             AttachTargetComponent = Actor->GetRootComponent();
 
-                                            // 타겟 컴포넌트에 소켓 이름이 매핑되어 있다면 소켓 트랜스폼 인출, 없으면 루트 기준 확보
                                             if (!Wrapper.ZoneData.TargetSocket.IsNone() && AttachTargetComponent)
                                             {
                                                 InitialTransform = AttachTargetComponent->GetSocketTransform(Wrapper.ZoneData.TargetSocket);
@@ -414,7 +408,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                                             {
                                                 InitialTransform = Actor->GetActorTransform();
                                             }
-                                            break; // 오브젝트 매핑 성공 시 전수조사 루프 즉시 탈출
+                                            break;
                                         }
                                     }
                                 }
@@ -422,40 +416,29 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                             }
                             }
 
-                            // 지연 스폰 가동 (LoadedZoneClass 타입이 AInteractionZoneBase로 보장되므로 템플릿 인자 직결 안전)
+                            // 지연 스폰 가동 후 고유 설정 정보 주입
                             AInteractionZoneBase* SpawnedZone = GetWorld()->SpawnActorDeferred<AInteractionZoneBase>(
-                                LoadedZoneClass,
-                                InitialTransform,
-                                this,
-                                nullptr,
-                                ESpawnActorCollisionHandlingMethod::AlwaysSpawn
+                                LoadedZoneClass, InitialTransform, this, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn
                             );
 
                             if (SpawnedZone)
                             {
-                                // 순수 작동 규칙 및 설정 정보 주입 후 스폰 완결 마감
                                 SpawnedZone->ZoneData = Wrapper.ZoneData;
                                 SpawnedZone->FinishSpawning(InitialTransform);
 
-                                // 소켓 컴포넌트 부착 결합 최종 정비 (환자 또는 실습실 배치 가구)
                                 if (AttachTargetComponent)
                                 {
-                                    FAttachmentTransformRules AttachRules(
-                                        EAttachmentRule::SnapToTarget,
-                                        EAttachmentRule::SnapToTarget,
-                                        EAttachmentRule::KeepWorld,
-                                        false
-                                    );
+                                    FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
                                     SpawnedZone->AttachToComponent(AttachTargetComponent, AttachRules, Wrapper.ZoneData.TargetSocket);
-
-                                    // 데이터 테이블에 명시된 미세 보정 상대 좌표(RelativeOffset) 반영
                                     SpawnedZone->SetActorRelativeTransform(Wrapper.ZoneData.RelativeOffset);
                                 }
                                 else if (Wrapper.AnchorType == EZoneAnchorType::StaticWorld)
                                 {
-                                    // 세계 고정형 구역은 부착 없이 절대 좌표로 월드에 배치 마감
                                     SpawnedZone->SetActorTransform(Wrapper.ZoneData.RelativeOffset);
                                 }
+
+                                // 생성 완료된 구역 객체를 해당 엔트리의 신호 채널(ProcessPayload)에 즉시 누적 바인딩합니다.
+                                NewEntry->InitializeEntry(NewPhase, SpawnedZone);
 
                                 // 다중 구역 관리용 유니크 키 조합 생성 (EntryID + ZoneID)
                                 FName UniqueZoneKey = FName(*(RowData->EntryID.ToString() + TEXT("_") + Wrapper.ZoneID.ToString() + TEXT("_Zone")));
@@ -464,8 +447,6 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
 
                                 UE_LOG(LogTemp, Log, TEXT("GameState: [구역 조립 완료] 엔트리 행: %s, 구역 ID: %s, 앵커: %d"),
                                     *SaveEntry.EntryRowName.ToString(), *Wrapper.ZoneID.ToString(), (int32)Wrapper.AnchorType);
-
-                                MatchedZone = SpawnedZone;
                             }
                         }
                     }
@@ -476,8 +457,6 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                 UE_LOG(LogTemp, Warning, TEXT("GameState: 구역 테이블에서 [%s] 키에 매칭되는 행 데이터를 찾지 못했습니다."), *SaveEntry.EntryRowName.ToString());
             }
 
-            // 구역 연동 데이터 엔트리에 최종 전달
-            NewEntry->InitializeEntry(NewPhase, MatchedZone);
             NewPhase->ActiveEntries.Add(NewEntry);
         }
 

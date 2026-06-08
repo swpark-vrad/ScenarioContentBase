@@ -88,12 +88,21 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Entry|Events")
 	void ReceiveEndEntry();
 
-	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|Process")
-	virtual void ProcessPayload(const FInteractionPayload& Payload);
+	UFUNCTION()
+	void BroadcastProcessPayload(const FInteractionPayload& Payload);
+
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|Process")
+	void ProcessPayload(const FInteractionPayload& Payload);
+
+	// BlueprintNativeEvent의 실제 C++ 본문 연산을 담당할 구현부 함수입니다.
+	virtual void ProcessPayload_Implementation(const FInteractionPayload& Payload);
 
 	UFUNCTION(BlueprintNativeEvent, Category = "Entry|Condition")
-	bool CheckSuccessCondition(const FInteractionPayload& Payload) const;
+	bool CheckTargetInteraction(const FInteractionPayload& Payload) const;
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|State")
 	virtual void CompleteEntry();
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|State")
+	virtual void ForceToCompleteEntry();
 };

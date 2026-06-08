@@ -8,9 +8,9 @@
 UENUM(BlueprintType)
 enum class EZoneAnchorType : uint8
 {
-	Patient         UMETA(DisplayName = "Patient Body (환자 신체 부착)"),
-	StaticWorld     UMETA(DisplayName = "Static World Space (실습실 특정 좌표 고정)"),
-	AttachedObject  UMETA(DisplayName = "Attached To Object (실습실 특정 오브젝트 부착)")
+	Patient         UMETA(DisplayName = "Patient Body"),
+	StaticWorld     UMETA(DisplayName = "Static World Space"),
+	AttachedObject  UMETA(DisplayName = "Attached To Object")
 };
 
 // =================================================================
@@ -25,13 +25,10 @@ struct FInteractionPayload
 	FGameplayTag UniqueID;		// 특정 엔트리르 가리킬 태그
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Payload")
-	FGameplayTag InteractionTag; // 어떤 행동인가? (예: Action.Clean)
+	FGameplayTagContainer InteractionTags; // 어떤 행동인가? (예: Action.Clean)
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Payload")
-	FGameplayTag ToolTag;        // 무슨 도구인가? (예: Item.Gauze)
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Payload")
-	AActor* ToolActor;           // 상호작용한 도구 액터의 실제 레퍼런스
+	AActor* TargetActor = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Payload")
 	TMap<FGameplayTag, FString> AdditionalData; // 약물명, 용량 등 추가 정보 딕셔너리
@@ -45,19 +42,9 @@ struct FZoneData
 {
 	GENERATED_BODY()
 
-	FZoneData()
-	{
-		// 주 모듈의 StartupModule()에서 태그가 먼저 Initialize 되었다면 이 시점에 Get() 호출이 안전합니다.
-		const FScenarioGameplayTags& GameplayTags = FScenarioGameplayTags::Get();
-
-		// 에디터 작업 속도를 위해 기본 태그 2개를 미리 셋팅
-		FilterTags.AddTag(GameplayTags.Object);
-		FilterTags.AddTag(GameplayTags.Object_Hand);
-	}
-
 	// 일회성 여부 변수
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
-	bool bIsOneShot = false;
+	bool bIsSingleUse = false;
 
 	// 충돌처리 필터 태그
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone")
@@ -98,7 +85,7 @@ struct FZoneDataWarpper
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
 	EZoneAnchorType AnchorType = EZoneAnchorType::Patient;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone", meta = (EditCondition = "AnchorType == EZoneAnchorType::AttachedObject"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone", meta = (EditCondition =  "AnchorType == EZoneAnchorType::AttachedObject"))
 	FName AnchorObjectTag = NAME_None;
 
 	// 스폰된 클래스에 주입할 세팅 데이터

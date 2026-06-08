@@ -17,6 +17,7 @@ public:
 	FGameplayTag Interaction;
 	FGameplayTag Object;
 	FGameplayTag Zone;
+	FGameplayTag Treatment;
 
 	FGameplayTag Object_Hand;
 	FGameplayTag Object_Hand_R;
