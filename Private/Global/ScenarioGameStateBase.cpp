@@ -8,6 +8,7 @@
 #include "Data/ScenarioSaveGame.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/PlayerState.h"
+#include "Kismet/GameplayStatics.h"
 
 AScenarioGameStateBase::AScenarioGameStateBase()
 {
@@ -349,31 +350,80 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
             NewEntry->TargetExecutionCount = RowData->TargetExecutionCount;
             NewEntry->TargetInteractionTag = RowData->TargetInteractionTag;
 
-            // 3. EntryID 태그 매칭을 통한 Zone 동적 스폰 및 환자 소켓 연동
+            // ==========================================================================================
+            // [★ 구조 적용 구간] 3. 신규 FZoneDataWarpper 규격 기반 하이브리드 공간 조립 공정
+            // ==========================================================================================
             AInteractionZoneBase* MatchedZone = nullptr;
 
-            TArray<FZoneSpawnRow*> AllZoneRows;
-            ZoneMasterTable->GetAllRows<FZoneSpawnRow>(TEXT("GameState_ZoneScan"), AllZoneRows);
+            FZoneSpawnRow* ZoneRow = ZoneMasterTable->FindRow<FZoneSpawnRow>(SaveEntry.EntryRowName, TEXT("GameState_ZoneSetup"));
 
-            for (FZoneSpawnRow* ZoneRow : AllZoneRows)
+            if (ZoneRow)
             {
-                if (ZoneRow && ZoneRow->EntryID.MatchesTagExact(RowData->EntryID))
+                // 제공해주신 래퍼 구조체 배열 순회 시작
+                for (const FZoneDataWarpper& Wrapper : ZoneRow->ZoneDatas)
                 {
-                    if (!ZoneRow->ZoneClass.IsNull())
+                    TSoftClassPtr<AInteractionZoneBase> SoftClassToSpawn = Wrapper.ZoneClass;
+
+                    if (!SoftClassToSpawn.IsNull())
                     {
-                        UClass* LoadedZoneClass = ZoneRow->ZoneClass.LoadSynchronous();
+                        UClass* LoadedZoneClass = SoftClassToSpawn.LoadSynchronous();
                         if (LoadedZoneClass)
                         {
                             FTransform InitialTransform = FTransform::Identity;
-                            // 안보이는 위치에 스폰
-                            InitialTransform.SetLocation(FVector(0.0f,0.0f,-10000.0f));
-                            if (PatientMesh && !ZoneRow->ZoneData.TargetSocket.IsNone())
+                            USceneComponent* AttachTargetComponent = nullptr;
+
+                            // Wrapper 내부에 이관된 AnchorType에 맞게 분기 연산 실행
+                            switch (Wrapper.AnchorType)
                             {
-                                InitialTransform = PatientMesh->GetSocketTransform(ZoneRow->ZoneData.TargetSocket);
+                            case EZoneAnchorType::Patient:
+                            {
+                                if (PatientMesh && !Wrapper.ZoneData.TargetSocket.IsNone())
+                                {
+                                    InitialTransform = PatientMesh->GetSocketTransform(Wrapper.ZoneData.TargetSocket);
+                                }
+                                AttachTargetComponent = PatientMesh;
+                                break;
+                            }
+                            case EZoneAnchorType::StaticWorld:
+                            {
+                                // 세계 절대 좌표 고정: RelativeOffset 데이터를 세계 절대값 트랜스폼으로 해석
+                                InitialTransform = Wrapper.ZoneData.RelativeOffset;
+                                break;
+                            }
+                            case EZoneAnchorType::AttachedObject:
+                            {
+                                // GetAllActorsWithTag를 원천 배제하고, 순정 ActorHasTag 쿼리로 안전하게 필터링 수집
+                                if (!Wrapper.AnchorObjectTag.IsNone())
+                                {
+                                    TArray<AActor*> AllActors;
+                                    UGameplayStatics::GetAllActorsOfClass(GetWorld(), AActor::StaticClass(), AllActors);
+
+                                    for (AActor* Actor : AllActors)
+                                    {
+                                        // 월드 에셋 중 디테일 창 [Actor Tags]에 해당 FName이 박혀있는 타겟 오브젝트 검출
+                                        if (Actor && Actor->ActorHasTag(Wrapper.AnchorObjectTag))
+                                        {
+                                            AttachTargetComponent = Actor->GetRootComponent();
+
+                                            // 타겟 컴포넌트에 소켓 이름이 매핑되어 있다면 소켓 트랜스폼 인출, 없으면 루트 기준 확보
+                                            if (!Wrapper.ZoneData.TargetSocket.IsNone() && AttachTargetComponent)
+                                            {
+                                                InitialTransform = AttachTargetComponent->GetSocketTransform(Wrapper.ZoneData.TargetSocket);
+                                            }
+                                            else
+                                            {
+                                                InitialTransform = Actor->GetActorTransform();
+                                            }
+                                            break; // 오브젝트 매핑 성공 시 전수조사 루프 즉시 탈출
+                                        }
+                                    }
+                                }
+                                break;
+                            }
                             }
 
-                            // 지연 스폰 가동
-                            MatchedZone = GetWorld()->SpawnActorDeferred<AInteractionZoneBase>(
+                            // 지연 스폰 가동 (LoadedZoneClass 타입이 AInteractionZoneBase로 보장되므로 템플릿 인자 직결 안전)
+                            AInteractionZoneBase* SpawnedZone = GetWorld()->SpawnActorDeferred<AInteractionZoneBase>(
                                 LoadedZoneClass,
                                 InitialTransform,
                                 this,
@@ -381,14 +431,14 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                                 ESpawnActorCollisionHandlingMethod::AlwaysSpawn
                             );
 
-                            if (MatchedZone)
+                            if (SpawnedZone)
                             {
-                                // 데이터 주입 및 스폰 완료 공정 진행
-                                MatchedZone->ZoneData = ZoneRow->ZoneData;
-                                MatchedZone->FinishSpawning(InitialTransform);
+                                // 순수 작동 규칙 및 설정 정보 주입 후 스폰 완결 마감
+                                SpawnedZone->ZoneData = Wrapper.ZoneData;
+                                SpawnedZone->FinishSpawning(InitialTransform);
 
-                                // 환자의 스켈레탈 메시 소켓 위치에 구역 액터를 종속시킴
-                                if (PatientMesh && !ZoneRow->ZoneData.TargetSocket.IsNone())
+                                // 소켓 컴포넌트 부착 결합 최종 정비 (환자 또는 실습실 배치 가구)
+                                if (AttachTargetComponent)
                                 {
                                     FAttachmentTransformRules AttachRules(
                                         EAttachmentRule::SnapToTarget,
@@ -396,28 +446,38 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                                         EAttachmentRule::KeepWorld,
                                         false
                                     );
-                                    MatchedZone->AttachToComponent(PatientMesh, AttachRules, ZoneRow->ZoneData.TargetSocket);
+                                    SpawnedZone->AttachToComponent(AttachTargetComponent, AttachRules, Wrapper.ZoneData.TargetSocket);
 
-                                    // 테이블에 설정된 미세 오프셋 상대 좌표계 반영
-                                    MatchedZone->SetActorRelativeTransform(ZoneRow->ZoneData.RelativeOffset);
+                                    // 데이터 테이블에 명시된 미세 보정 상대 좌표(RelativeOffset) 반영
+                                    SpawnedZone->SetActorRelativeTransform(Wrapper.ZoneData.RelativeOffset);
+                                }
+                                else if (Wrapper.AnchorType == EZoneAnchorType::StaticWorld)
+                                {
+                                    // 세계 고정형 구역은 부착 없이 절대 좌표로 월드에 배치 마감
+                                    SpawnedZone->SetActorTransform(Wrapper.ZoneData.RelativeOffset);
                                 }
 
-                                FName UniqueZoneKey = FName(*(RowData->EntryID.ToString() + TEXT("_Zone")));
-                                GlobalActiveZones.Add(UniqueZoneKey, MatchedZone);
-                                NewPhase->ActiveZones.Add(UniqueZoneKey, MatchedZone);
+                                // 다중 구역 관리용 유니크 키 조합 생성 (EntryID + ZoneID)
+                                FName UniqueZoneKey = FName(*(RowData->EntryID.ToString() + TEXT("_") + Wrapper.ZoneID.ToString() + TEXT("_Zone")));
+                                GlobalActiveZones.Add(UniqueZoneKey, SpawnedZone);
+                                NewPhase->ActiveZones.Add(UniqueZoneKey, SpawnedZone);
 
-                                UE_LOG(LogTemp, Log, TEXT("GameState: [Zone 동적 결합] 매칭 태그: %s -> 환자 소켓 부착 완료: %s"),
-                                    *RowData->EntryID.ToString(), *ZoneRow->ZoneData.TargetSocket.ToString());
+                                UE_LOG(LogTemp, Log, TEXT("GameState: [구역 조립 완료] 엔트리 행: %s, 구역 ID: %s, 앵커: %d"),
+                                    *SaveEntry.EntryRowName.ToString(), *Wrapper.ZoneID.ToString(), (int32)Wrapper.AnchorType);
 
-                                break;
+                                MatchedZone = SpawnedZone;
                             }
                         }
                     }
                 }
             }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("GameState: 구역 테이블에서 [%s] 키에 매칭되는 행 데이터를 찾지 못했습니다."), *SaveEntry.EntryRowName.ToString());
+            }
+
             // 구역 연동 데이터 엔트리에 최종 전달
             NewEntry->InitializeEntry(NewPhase, MatchedZone);
-
             NewPhase->ActiveEntries.Add(NewEntry);
         }
 
@@ -425,7 +485,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
     }
 
     UE_LOG(LogTemp, Log, TEXT("========================================================================="));
-    UE_LOG(LogTemp, Log, TEXT("GameState: 모든 가상 환경 조립 및 동적 환자 생성, 신체 소켓 구역 빌드 완료."));
+    UE_LOG(LogTemp, Log, TEXT("GameState: 최신 메타데이터 구조 기반 다목적 가상 시뮬레이터 환경 조립 성공."));
     UE_LOG(LogTemp, Log, TEXT("========================================================================="));
 }
 

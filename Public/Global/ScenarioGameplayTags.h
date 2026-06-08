@@ -1,21 +1,31 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 
-/** ½Ã¹Ä·¹ÀÌÅÍ Àü¿ª¿¡¼­ °ø¿ëÀ¸·Î »ç¿ëÇÒ ³×ÀÌÆ¼ºê ÅÂ±× ÀúÀå¼Ò */
+/** ì‹œë®¬ë ˆì´í„° ì „ì—­ì—ì„œ ê³µìš©ìœ¼ë¡œ ì‚¬ìš©í•  ë„¤ì´í‹°ë¸Œ íƒœê·¸ ì €ì¥ì†Œ */
 struct SCENARIOCONTENT_API FScenarioGameplayTags
 {
 public:
 	static const FScenarioGameplayTags& Get() { return Tags; }
 
-	// ÀÌ´Ï ÆÄÀÏ ¾øÀÌ ÄÚµå¿¡¼­ ÅÂ±×¸¦ Á÷Á¢ ÁÖÀÔÇÏ´Â ÇÙ½É ÇÔ¼ö
+	// ì´ë‹ˆ íŒŒì¼ ì—†ì´ ì½”ë“œì—ì„œ íƒœê·¸ë¥¼ ì§ì ‘ ì£¼ì…í•˜ëŠ” í•µì‹¬ í•¨ìˆ˜
 	static void InitializeNativeTags();
 
-	// ±âº»ÀûÀÎ ÅÂ±× ·çÆ®
+	// ê¸°ë³¸ì ì¸ íƒœê·¸ ë£¨íŠ¸
 	FGameplayTag EntryID;
 	FGameplayTag Interaction;
 	FGameplayTag Object;
+	FGameplayTag Zone;
+
+	FGameplayTag Object_Hand;
+	FGameplayTag Object_Hand_R;
+	FGameplayTag Object_Hand_L;
+
+	// ì…ë ¥ ìƒíƒœ í™•ì¸ìš© íƒœê·¸
+	FGameplayTag InputState;
+	FGameplayTag InputState_Grab;
+	FGameplayTag InputState_Trigger;
 
 private:
 	static FScenarioGameplayTags Tags;

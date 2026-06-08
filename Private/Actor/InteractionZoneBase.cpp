@@ -1,4 +1,5 @@
 #include "Actor/InteractionZoneBase.h"
+#include "Interface/InteractableTagInterface.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -24,10 +25,8 @@ void AInteractionZoneBase::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 서버인 경우, 오버랩 이벤트 바인딩 및 본인 스스로 OnRep 함수 1회 호출하여 세팅 적용
 	if (HasAuthority())
 	{
-		CollisionBox->OnComponentBeginOverlap.AddDynamic(this, &AInteractionZoneBase::OnBoxOverlap);
 		OnRep_ZoneData();
 	}
 }
@@ -61,21 +60,37 @@ void AInteractionZoneBase::OnRep_ZoneData()
 	}
 }
 
-// 충돌 감지 로직 (서버에서만 실행됨)
-void AInteractionZoneBase::OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+void AInteractionZoneBase::BroadcastInteractionTriggered(const FInteractionPayload& Payload)
 {
-	// 1. 방어 코드 및 서버 권한 확인 (C++의 통제 영역)
-	if (!HasAuthority() || !OtherActor || OtherActor == this) return;
-
-	FInteractionPayload AssembledPayload;
-
-	// 2. 블루프린트에 로직 위임 (BP_IZ_프로젝트에서 구현한 노드가 실행됨)
-	if (CheckAndBuildPayload(OtherActor, AssembledPayload))
+	if (OnInteractionTriggered.IsBound())
 	{
-		// 3. 블루프린트가 성공(true)을 반환했다면, C++가 넘겨받아 후처리 진행
-		OnInteractionTriggered.Broadcast(AssembledPayload);
-
-		// 중복 충돌 방지를 위해 즉시 콜리전 끄기
-		CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		OnInteractionTriggered.Broadcast(Payload);
 	}
+}
+
+bool AInteractionZoneBase::IsValidInteractableActor(AActor* OtherActor) const
+{
+	if (!OtherActor || OtherActor == this) return false;
+
+	// 1차 검사: 들어온 액터가 상호작용 태그 인터페이스를 장착하고 있는지 확인
+	if (OtherActor->GetClass()->ImplementsInterface(UInteractableTagInterface::StaticClass()))
+	{
+		// 2차 검사: 인터페이스 함수를 안전하게 호출하여 고유 ID 태그 획득
+		FGameplayTag ActorUniqueID = IInteractableTagInterface::Execute_GetUniqueIDTag(OtherActor);
+
+		// 필터 지정 변수가 채워져 있을 때만 태그 대조 필터링 수행 (비어있으면 예외 없이 통과)
+		if (!ZoneData.FilterTags.IsEmpty())
+		{
+			// 컨테이너 내부에 해당 도구의 고유 ID가 일치하는지 검사
+			// 하위 태그도 확인하기 위해 HasTag 사용 (ex.Object.Hand.L)
+			if (!ZoneData.FilterTags.HasTag(ActorUniqueID))
+			{
+				// 일치하지 않는 엉뚱한 도구이므로 C++ 단에서 즉시 가드 필터 탈락 처리
+				return false;
+			}
+		}
+		return true; // 필터를 무사히 통과함
+	}
+
+	return false; // 인터페이스조차 없는 일반 액터는 원천 차단
 }

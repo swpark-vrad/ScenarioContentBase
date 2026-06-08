@@ -1,4 +1,4 @@
-#include "Global/ScenarioGameplayTags.h"
+ï»¿#include "Global/ScenarioGameplayTags.h"
 #include "GameplayTagsManager.h"
 
 FScenarioGameplayTags FScenarioGameplayTags::Tags;
@@ -7,9 +7,18 @@ void FScenarioGameplayTags::InitializeNativeTags()
 {
 	UGameplayTagsManager& Manager = UGameplayTagsManager::Get();
 
-	// AddNativeGameplayTag¸¦ ÅëÇØ ¿£Áø ±¸µ¿ ½ÃÁ¡¿¡ ÅÂ±×¸¦ Á÷Á¢ °­Á¦ µî·ÏÇÕ´Ï´Ù.
-	// µÎ ¹øÂ° ÀÎÀÚ´Â ¿¡µğÅÍ¿¡¼­ º¸ÀÏ °³¹ßÀÚ¿ë ÈùÆ® ÁÖ¼®ÀÔ´Ï´Ù.
-	Tags.EntryID = Manager.AddNativeGameplayTag(FName("EntryID"), TEXT("¿£Æ®¸®ID ·çÆ®"));
-	Tags.Interaction = Manager.AddNativeGameplayTag(FName("Interaction"), TEXT("Çàµ¿ ·çÆ®"));
-	Tags.Object = Manager.AddNativeGameplayTag(FName("Object"), TEXT("µµ±¸ ·çÆ®"));
+	// AddNativeGameplayTagë¥¼ í†µí•´ ì—”ì§„ êµ¬ë™ ì‹œì ì— íƒœê·¸ë¥¼ ì§ì ‘ ê°•ì œ ë“±ë¡í•©ë‹ˆë‹¤.
+	// ë‘ ë²ˆì§¸ ì¸ìëŠ” ì—ë””í„°ì—ì„œ ë³´ì¼ ê°œë°œììš© íŒíŠ¸ ì£¼ì„ì…ë‹ˆë‹¤.
+	Tags.EntryID = Manager.AddNativeGameplayTag(FName("EntryID"), TEXT("ì—”íŠ¸ë¦¬ID ë£¨íŠ¸"));
+	Tags.Interaction = Manager.AddNativeGameplayTag(FName("Interaction"), TEXT("í–‰ë™ ë£¨íŠ¸"));
+	Tags.Object = Manager.AddNativeGameplayTag(FName("Object"), TEXT("ë„êµ¬ ë£¨íŠ¸"));
+	Tags.Zone = Manager.AddNativeGameplayTag(FName("Zone"), TEXT("ì¡´ ë£¨íŠ¸"));
+
+	Tags.Object_Hand = Manager.AddNativeGameplayTag(FName("Object.Hand"), TEXT("ì†"));
+	Tags.Object_Hand_R = Manager.AddNativeGameplayTag(FName("Object.Hand.Right"), TEXT("ì˜¤ë¥¸ì†"));
+	Tags.Object_Hand_L = Manager.AddNativeGameplayTag(FName("Object.Hand.Left"), TEXT("ì™¼ì†"));
+
+	Tags.InputState = Manager.AddNativeGameplayTag(FName("InputState"), TEXT("ì…ë ¥ ìƒíƒœ ë£¨íŠ¸"));
+	Tags.InputState_Grab = Manager.AddNativeGameplayTag(FName("InputState.Grab"), TEXT("ê·¸ë© ìƒíƒœ"));
+	Tags.InputState_Trigger = Manager.AddNativeGameplayTag(FName("InputState.Trigger"), TEXT("íŠ¸ë¦¬ê±° ìƒíƒœ"));
 }

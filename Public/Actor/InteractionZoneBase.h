@@ -24,20 +24,19 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	// 오버랩(충돌) 이벤트 함수
-	UFUNCTION()
-	virtual void OnBoxOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
-
 	// ZoneData 동기화용 RepNotify 함수
 	UFUNCTION()
 	virtual void OnRep_ZoneData();
 
-	/*
-	 * 충돌한 액터가 유효한 도구인지 검사하고 페이로드를 조립하여 반환합니다.
-	 * 회사 블루프린트 프레임워크와의 호환성을 위해 BP에서 오버라이드하여 구현합니다.
-	 */
+	/** 충돌한 액터가 유효한 도구인지 검사하고 페이로드를 조립하여 반환하는 Native Event (BP 오버라이드 가능) */
 	UFUNCTION(BlueprintNativeEvent, Category = "Zone|Interaction")
 	bool CheckAndBuildPayload(AActor* OtherActor, FInteractionPayload& OutPayload);
+
+	/** 하위 상속 클래스들이 조립 완료된 페이로드를 안전하게 방송할 수 있도록 캡슐화된 통로 함수 */
+	void BroadcastInteractionTriggered(const FInteractionPayload& Payload);
+
+	/** [★ 추가] 진입한 액터가 인터페이스를 구현했는지, 필터 태그에 합격했는지 C++ 단에서 초고속 검사하는 방어 함수 */
+	bool IsValidInteractableActor(AActor* OtherActor) const;
 
 public:
 	// ==========================================
