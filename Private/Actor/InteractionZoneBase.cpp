@@ -158,8 +158,6 @@ bool AInteractionZoneBase::IsValidInteractableActor(AActor* OtherActor) const
 
 void AInteractionZoneBase::Multicast_SetActivateHint_Implementation(bool bActivate)
 {
-	if (!HasAuthority()) return;
-
 	if (!bIsShutdown)
 	{
 		HighlightMeshComp->SetVisibility(bActivate);
