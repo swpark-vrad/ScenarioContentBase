@@ -24,6 +24,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Zone|Control")
 	virtual void DeactivateAndShutdown();
 
+	// 환자 인터페이스 캐싱을 위한 함수
+	void SetPatientActor(AActor* InPatientActor);
+
+	UFUNCTION(NetMulticast, Reliable, Category = "Zone|Hint")
+	void Multicast_SetActivateHint(bool bActivate);
+	virtual void Multicast_SetActivateHint_Implementation(bool bActivate);
+
 	// ==========================================
 	// 컴포넌트
 	// ==========================================
@@ -43,6 +50,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Zone|Events")
 	FOnInteractionTriggered OnInteractionTriggered;
 
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -52,7 +60,7 @@ protected:
 	virtual void OnRep_ZoneData();
 
 	/** 충돌한 액터가 유효한 도구인지 검사하고 페이로드를 조립하여 반환하는 Native Event (BP 오버라이드 가능) */
-	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interaction|Zone")
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Zone|Interaction")
 	bool CheckAndBuildPayload(AActor* OtherActor, FInteractionPayload& OutPayload);
 
 	virtual bool CheckAndBuildPayload_Implementation(AActor* OtherActor, FInteractionPayload& OutPayload);
@@ -72,4 +80,7 @@ protected:
 	UFUNCTION()
 	virtual void OnRep_bIsShutdown();
 
+	// 환자 인터페이스 캐싱
+	UPROPERTY()
+	AActor* CachedPatientActor;
 };

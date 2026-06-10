@@ -15,6 +15,8 @@ void FScenarioGameplayTags::InitializeNativeTags()
 	Tags.Zone = Manager.AddNativeGameplayTag(FName("Zone"), TEXT("존 루트"));
 	Tags.Treatment = Manager.AddNativeGameplayTag(FName("Treatment"), TEXT("처치 루트"));
 
+	Tags.Object_Patient = Manager.AddNativeGameplayTag(FName("Object.Patient"), TEXT("환자"));
+
 	Tags.Object_Hand = Manager.AddNativeGameplayTag(FName("Object.Hand"), TEXT("손"));
 	Tags.Object_Hand_R = Manager.AddNativeGameplayTag(FName("Object.Hand.Right"), TEXT("오른손"));
 	Tags.Object_Hand_L = Manager.AddNativeGameplayTag(FName("Object.Hand.Left"), TEXT("왼손"));

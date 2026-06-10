@@ -5,6 +5,8 @@
 #include "Actor/InteractionZoneBase.h"
 #include "Actor/ScenarioPatientBase.h"
 #include "Data/ScenarioDataTypes.h"
+#include "Data/ScenarioSaveTypes.h"
+#include "Data/ScenarioUITypes.h"
 #include "Data/ScenarioSaveGame.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/PlayerState.h"
@@ -301,13 +303,16 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
     FActorSpawnParameters PatientSpawnParams;
     PatientSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    SpawnedPatient = GetWorld()->SpawnActor<AScenarioPatientBase>(DefaultPatientClass, FVector::ZeroVector, FRotator::ZeroRotator, PatientSpawnParams);
+    // 환자 안보이는 위치에 스폰
+    SpawnedPatient = GetWorld()->SpawnActor<AScenarioPatientBase>(DefaultPatientClass, FVector(0.0f,0.0f,-10000.0f), FRotator::ZeroRotator, PatientSpawnParams);
 
     USkeletalMeshComponent* PatientMesh = nullptr;
     if (SpawnedPatient)
     {
-        SpawnedPatient->Tags.AddUnique(TEXT("Patient"));
         PatientMesh = SpawnedPatient->TorsoMesh; // 메인 부모 바디로 설정된 TorsoMesh 사용
+        // 환자 부위별 상태 적용
+        SpawnedPatient->InitializePartState(ScenarioData.PatientPartState);
+
         UE_LOG(LogTemp, Log, TEXT("GameState: 환자 베이스 액터 동적 스폰 및 데이터 바인딩 완료."));
     }
     else
@@ -358,7 +363,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
 
             if (ZoneRow)
             {
-                for (const FZoneDataWarpper& Wrapper : ZoneRow->ZoneDatas)
+                for (const FZoneDataWrapper& Wrapper : ZoneRow->ZoneDatas)
                 {
                     TSoftClassPtr<AInteractionZoneBase> SoftClassToSpawn = Wrapper.ZoneClass;
 
@@ -425,6 +430,23 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                             {
                                 SpawnedZone->ZoneData = Wrapper.ZoneData;
                                 SpawnedZone->FinishSpawning(InitialTransform);
+
+                                // 환자 인터페이스 캐싱
+                                if (SpawnedPatient)
+                                {
+                                    SpawnedZone->SetPatientActor(SpawnedPatient);
+                                }
+
+                                // 힌트 활성화를 위한 캐싱
+                                FGameplayTag TargetTag = SpawnedZone->ZoneData.HintTargetTag;
+
+                                // 유효한 태그가 세팅되어 있다면 GameState의 전역 맵 장부에 주소를 쏙 집어넣습니다.
+                                if (TargetTag.IsValid())
+                                {
+                                    ActiveHintRegistry.FindOrAdd(TargetTag).InteractionZoneActors.AddUnique(SpawnedZone);
+                                }
+
+                                SpawnedZone->FinishSpawning(FTransform::Identity);
 
                                 if (AttachTargetComponent)
                                 {
@@ -612,6 +634,23 @@ void AScenarioGameStateBase::HandlePhaseCompleted(AScenarioPhaseBase* CompletedP
     }
 }
 
+void AScenarioGameStateBase::ReceiveGrabSignal(FGameplayTag GrabbedTag)
+{
+    if (!HasAuthority()) return;
+    // 전달 받은 태그가 추가되어있는지 확인
+    if (GrabbedTag.IsValid() && ActiveHintRegistry.Contains(GrabbedTag))
+    {
+        // 있다면 등록된 IZ 모두 순회하며 힌트 활성화
+        for (AInteractionZoneBase* NewZone : ActiveHintRegistry[GrabbedTag].InteractionZoneActors)
+        {
+            if (IsValid(NewZone))
+            {
+                NewZone->Multicast_SetActivateHint(true);
+            }
+        }
+    }
+}
+
 void AScenarioGameStateBase::PauseScenario()
 {
     if (!HasAuthority() || !bIsStarted || bIsPaused) return;
@@ -727,4 +766,24 @@ void AScenarioGameStateBase::ActivatePatient_Implementation(USceneComponent* InP
     SpawnedPatient->AttachToComponent(InParentComponent, AttachRules);
 
     UE_LOG(LogTemp, Log, TEXT("GameState: 환자를 지정된 컴포넌트에 배치하고 시나리오 내 활성화를 완료했습니다."));
+}
+
+bool AScenarioGameStateBase::GetTreatmentVisualData(FGameplayTag TreatmentTag, FTreatmentVisuals& OutVisualData) const
+{
+    if (!TreatmentVisualTable || !TreatmentTag.IsValid()) return false;
+
+    TArray<FTreatmentVisuals*> AllRows;
+    TreatmentVisualTable->GetAllRows(TEXT("FindVisualContext"), AllRows);
+
+    // 테이블 내의 모든 행을 순회하며 ObjectID 태그가 일치하는 데이터를 검색합니다.
+    for (FTreatmentVisuals* Row : AllRows)
+    {
+        if (Row && Row->ObjectID == TreatmentTag)
+        {
+            OutVisualData = *Row;
+            return true;
+        }
+    }
+
+    return false;
 }

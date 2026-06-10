@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/SaveGame.h"
-#include "Data/ScenarioDataTypes.h"
+#include "Data/ScenarioSaveTypes.h"
 #include "ScenarioSaveGame.generated.h"
 
 UCLASS()

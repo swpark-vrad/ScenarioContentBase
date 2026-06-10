@@ -13,6 +13,18 @@ enum class EZoneAnchorType : uint8
 	AttachedObject  UMETA(DisplayName = "Attached To Object")
 };
 
+// 환자의 신체 부위별 부상 상태를 나타내는 열거형
+UENUM(BlueprintType)
+enum class EBodyPartState : uint8
+{
+	Normal          UMETA(DisplayName = "Normal"),          // 정상
+	Contusion       UMETA(DisplayName = "Contusion"),       // 타박상
+	CloseFracture   UMETA(DisplayName = "Close Fracture"),  // 폐쇄성 골절
+	OpenFracture    UMETA(DisplayName = "Open Fracture"),   // 개방성 골절
+	Amputation      UMETA(DisplayName = "Amputation")       // 절단
+};
+
+
 // =================================================================
 // 1. 센서와 통제탑 간의 통신 데이터 (Payload)
 // =================================================================
@@ -48,11 +60,15 @@ struct FZoneData
 
 	// 충돌처리 필터 태그
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone")
-	FGameplayTagContainer FilterTags;
+	FGameplayTagContainer CollisionFilterTags;
 
-	// 인터랙션을 확인할 태그 컨테이너
+	// 환자에게 부착된 경우 사전에 필요한 처치 조건 태그
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone")
+	FGameplayTagContainer RequiredStateTags;
+
+	// 목표 인터랙션을 전달할 태그 컨테이너
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
-	FGameplayTagContainer TargetTags;
+	FGameplayTagContainer TargetInteractionTags;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
 	FName TargetSocket;
@@ -63,13 +79,13 @@ struct FZoneData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
 	FTransform RelativeOffset;
 
-	// 메모리 최적화를 위한 Soft Object Pointer 적용
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
-	TSoftObjectPtr<class UStaticMesh> HighlightMesh = nullptr;
+	// 힌트를 활성화 체크 태그
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zone|Hint")
+	FGameplayTag HintTargetTag;
 };
 
 USTRUCT(BlueprintType)
-struct FZoneDataWarpper
+struct FZoneDataWrapper
 {
 	GENERATED_BODY()
 
@@ -103,40 +119,9 @@ struct FZoneSpawnRow : public FTableRowBase
 
 	// 스폰된 클래스에 주입할 세팅 데이터
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Zone")
-	TArray<FZoneDataWarpper> ZoneDatas;
+	TArray<FZoneDataWrapper> ZoneDatas;
 };
 
-// UI 표시용 엔트리 데이터 구조체
-USTRUCT(BlueprintType)
-struct FScenarioEntryUIData
-{
-	GENERATED_BODY()
-
-	// UI 레이어에서 고유 식별 및 RPC 요청에 사용할 EntryID 태그 멤버를 추가합니다.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|UI")
-	FGameplayTag EntryID;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|UI")
-	FName EntryName;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|UI")
-	bool bIsMandatory = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|UI")
-	bool bIsCompleted = false;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|UI")
-	int32 CompletionTime = -1;
-};
-
-USTRUCT(BlueprintType)
-struct FPhaseHistoryData
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|History")
-	TArray<FScenarioEntryUIData> Entries;
-};
 
 // =================================================================
 // 1. 마스터 데이터테이블 규격 (엔트리의 모든 속성을 고정 가동하는 마스터 템플릿)
@@ -163,54 +148,48 @@ struct FScenarioEntryTableRow : public FTableRowBase
 	int32 TargetExecutionCount = 1;
 };
 
-// =================================================================
-// 2. 시나리오 데이터 직렬화용 세이브 구조체 세트
-// =================================================================
+// 환자 처치시 추가할 비주얼 메시 구조체
 USTRUCT(BlueprintType)
-struct FEntrySaveData
+struct FTreatmentVisuals : public FTableRowBase
 {
 	GENERATED_BODY()
 
-	// 마스터 데이터테이블의 RowName (곧 처치 행동의 고유 ID 키)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SaveData")
-	FName EntryRowName;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treatment|Visual")
+	FGameplayTag ObjectID;
 
-	// 이번 페이즈 배치 상태에서 해당 처치가 필수인지 여부
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SaveData")
-	bool bIsMandatory = true;
+	// 하드 포인터 대신 소프트 오브젝트 포인터를 사용하여 필요할 때만 메모리에 로드하도록 최적화합니다.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treatment|Visual")
+	TSoftObjectPtr<UStaticMesh> VisualMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treatment|Visual")
+	FName TargetSocketName = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Treatment|Visual")
+	FTransform RelativeOffset = FTransform::Identity;
 };
 
+
 USTRUCT(BlueprintType)
-struct FPhaseSaveData
+struct FPatientPartState
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
-	FName PhaseName;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|PartState")
+	EBodyPartState HeadState = EBodyPartState::Normal;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
-	float TimeLimit = 120.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|PartState")
+	EBodyPartState TorsoState = EBodyPartState::Normal;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
-	TArray<FEntrySaveData> Entries;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|PartState")
+	EBodyPartState RightArmState = EBodyPartState::Normal;
 
-	// 성공했을 때 전환될 다음 페이즈 이름
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
-	FName NextSuccessPhaseName;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|PartState")
+	EBodyPartState LeftArmState = EBodyPartState::Normal;
 
-	// 시간 초과 등 실패 조건이 발동했을 때 전환될 다음 페이즈 이름
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
-	FName NextFailurePhaseName;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|PartState")
+	EBodyPartState RightLegState = EBodyPartState::Normal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|PartState")
+	EBodyPartState LeftLegState = EBodyPartState::Normal;
 };
 
-USTRUCT(BlueprintType)
-struct FScenarioSaveData
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
-	FName ScenarioID;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
-	TArray<FPhaseSaveData> Phases;
-};

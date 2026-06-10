@@ -19,6 +19,7 @@ AInteractionZoneBase::AInteractionZoneBase()
 	HighlightMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HighlightMeshComp"));
 	HighlightMeshComp->SetupAttachment(CollisionBox);
 	HighlightMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 메시는 충돌 연산 제외
+	HighlightMeshComp->SetVisibility(false);	// 비저블 비활성화
 }
 
 void AInteractionZoneBase::BeginPlay()
@@ -49,6 +50,11 @@ void AInteractionZoneBase::DeactivateAndShutdown()
 	OnRep_bIsShutdown(); // 서버 호스트 본인의 로컬 환경에도 즉시 반영합니다.
 }
 
+void AInteractionZoneBase::SetPatientActor(AActor* InPatientActor)
+{
+	CachedPatientActor = InPatientActor;
+}
+
 void AInteractionZoneBase::OnRep_bIsShutdown()
 {
 	if (bIsShutdown)
@@ -57,6 +63,7 @@ void AInteractionZoneBase::OnRep_bIsShutdown()
 		if (CollisionBox)
 		{
 			CollisionBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			CollisionBox->SetHiddenInGame(true);
 		}
 
 		// 하이라이트 메쉬의 가시성을 꺼서 시각적으로도 완벽히 정리합니다.
@@ -75,12 +82,6 @@ void AInteractionZoneBase::OnRep_ZoneData()
 		CollisionBox->SetBoxExtent(ZoneData.BoxExtent);
 	}
 
-	if (HighlightMeshComp && !ZoneData.HighlightMesh.IsNull())
-	{
-		// Soft Pointer 동기 로드 적용 (하이라이트 메시 정도는 가벼워서 Synchronous 로드도 무방함)
-		UStaticMesh* LoadedMesh = ZoneData.HighlightMesh.LoadSynchronous();
-		HighlightMeshComp->SetStaticMesh(LoadedMesh);
-	}
 }
 
 bool AInteractionZoneBase::CheckAndBuildPayload_Implementation(AActor* OtherActor, FInteractionPayload& OutPayload)
@@ -102,7 +103,7 @@ bool AInteractionZoneBase::CheckAndBuildPayload_Implementation(AActor* OtherActo
 	}
 
 	// 구역 본인이 데이터 테이블로부터 주입받은 목적 태그를 함께 포장합니다.
-	OutPayload.InteractionTags.AppendTags(ZoneData.TargetTags);
+	OutPayload.InteractionTags.AppendTags(ZoneData.TargetInteractionTags);
 
 	return true;
 }
@@ -122,21 +123,45 @@ bool AInteractionZoneBase::IsValidInteractableActor(AActor* OtherActor) const
 	// 1차 검사: 들어온 액터가 상호작용 태그 인터페이스를 장착하고 있는지 확인
 	if (OtherActor->Implements<UInteractableTagInterface>())
 	{
-		// 2차 검사: 인터페이스 함수를 안전하게 호출하여 고유 ID 태그 획득
+		// 2차 검사: 인터페이스 함수로 참조한 ID 태그로 충돌 예외처리
 		FGameplayTag ActorUniqueID = IInteractableTagInterface::Execute_GetUniqueIDTag(OtherActor);
 
-		// 필터 지정 변수가 채워져 있을 때만 태그 대조 필터링 수행 (비어있으면 예외 없이 통과)
-		if (!ZoneData.FilterTags.IsEmpty())
+		if (!ZoneData.CollisionFilterTags.IsEmpty() && !ActorUniqueID.MatchesAny(ZoneData.CollisionFilterTags))
 		{
-			// 액터의 세부 태그가 필터 카테고리(부모 태그 포함) 중 하나라도 부합하는지 정방향 매칭을 수행합니다.
-			if (!ActorUniqueID.MatchesAny(ZoneData.FilterTags))
+			return false;
+		}
+
+		// 3차 검사 : 사전 필요 처치가 있을 경우 필터링
+		if (!ZoneData.RequiredStateTags.IsEmpty())
+		{
+			// 캐싱한 환자가 유효한지, 인터페이스를 구현했는지 확인
+			if (CachedPatientActor != nullptr && CachedPatientActor->Implements<UInteractableTagInterface>())
 			{
-				// 일치하는 허가 카테고리가 없으므로 C++ 단에서 즉시 가드 필터 탈락 처리
+				// Execute_ 매크로는 대상이 네이티브든 블루프린트든 상관없이 인터페이스 함수를 최상위 속도로 강제 가동합니다.
+				FGameplayTagContainer PatientTags = IInteractableTagInterface::Execute_GetStateTags(CachedPatientActor);
+
+				if (!PatientTags.HasAll(ZoneData.RequiredStateTags))
+				{
+					return false;
+				}
+			}
+			else
+			{
 				return false;
 			}
 		}
-		return true; // 필터를 무사히 통과함
+		return true;
 	}
 
 	return false; // 인터페이스조차 없는 일반 액터는 원천 차단
+}
+
+void AInteractionZoneBase::Multicast_SetActivateHint_Implementation(bool bActivate)
+{
+	if (!HasAuthority()) return;
+
+	if (!bIsShutdown)
+	{
+		HighlightMeshComp->SetVisibility(bActivate);
+	}
 }

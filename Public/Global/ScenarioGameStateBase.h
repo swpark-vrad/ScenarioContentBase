@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
 #include "Data/ScenarioDataTypes.h"
+#include "Data/ScenarioSaveTypes.h"
+#include "Data/ScenarioUITypes.h"
 #include "ScenarioGameStateBase.generated.h"
 
 class AScenarioPhaseBase;
@@ -29,6 +31,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPhaseStartedSignature, FName, Pha
 // 페이즈 데이터 변경시(새로운 페이즈로 바뀌거나, 엔트리 체크 변경) 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntryDatasUpdatedSignature);
 
+// 캐싱에 사용될 래퍼 구조체
+USTRUCT()
+struct FInteractionZoneWrapper
+{
+    GENERATED_BODY()   
+
+    UPROPERTY()
+    TArray<class AInteractionZoneBase*> InteractionZoneActors;
+};
 
 UCLASS()
 class SCENARIOCONTENT_API AScenarioGameStateBase : public AGameStateBase
@@ -111,43 +122,9 @@ public:
     void ActivatePatient(USceneComponent* InParentComponent);
     virtual void ActivatePatient_Implementation(USceneComponent* InParentComponent);
 
-protected:
-    FTimerHandle ClockTimerHandle;
+    UFUNCTION(BlueprintCallable, Category = "Scenario|Data")
+    bool GetTreatmentVisualData(FGameplayTag TreatmentTag, FTreatmentVisuals& OutVisualData) const;
 
-    UFUNCTION()
-    void UpdateScenarioClock();
-
-    UFUNCTION()
-    void OnRep_ProgressTime();
-
-    // 에디터에서 지정할 마스터 엔트리 데이터 테이블 (DT_EntryMaster)
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
-    class UDataTable* EntryMasterTable;
-
-    // 에디터에서 지정할 마스터 구역 데이터 테이블 (DT_ZoneMaster)
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
-    class UDataTable* ZoneMasterTable;
-
-    // 데이터 기반 페이즈 액터를 동적 생성하기 위한 기본 페이즈 클래스 (BP_Phase_Base)
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
-    TSubclassOf<AScenarioPhaseBase> DefaultPhaseClass;
-
-    // 에디터 디테일 패널에서 지정할 환자 스폰 클래스 변수 추가
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
-    TSubclassOf<AScenarioPatientBase> DefaultPatientClass;
-
-    // 런타임에 스폰된 환자 액터의 포인터를 보관할 변수 (가비지 컬렉션 방지용 UPROPERTY)
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Scenario|Runtime")
-    AScenarioPatientBase* SpawnedPatient;
-
-    UFUNCTION()
-    void HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry);
-
-    UPROPERTY()
-    TMap<FGameplayTag, AScenarioEntryBase*> ActiveEntryMap;
-
-
-public:
     // ==========================================
     // 2. 글로벌 존 및 페이즈 샌드박스 관리
     // ==========================================
@@ -205,6 +182,9 @@ public:
     UFUNCTION()
     void HandlePhaseCompleted(AScenarioPhaseBase* CompletedPhase, bool bIsSuccess);
 
+    UFUNCTION(BlueprintCallable, Category = "Scenario|Hint")
+    void ReceiveGrabSignal(FGameplayTag GrabbedTag);
+
     // ==========================================
     // 3. 통합 UI 및 히스토리 관리 (네트워크 최적화)
     // ==========================================
@@ -221,4 +201,47 @@ public:
 
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|UI")
     void UpdateEntryUIState(FGameplayTag EntryID, bool bCompleted);
+
+protected:
+    FTimerHandle ClockTimerHandle;
+
+    UFUNCTION()
+    void UpdateScenarioClock();
+
+    UFUNCTION()
+    void OnRep_ProgressTime();
+
+    // 에디터에서 지정할 마스터 엔트리 데이터 테이블 (DT_EntryMaster)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
+    class UDataTable* EntryMasterTable;
+
+    // 에디터에서 지정할 마스터 구역 데이터 테이블 (DT_ZoneMaster)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
+    class UDataTable* ZoneMasterTable;
+
+    // 처치 비주얼 마스터 데이터 테이블을 관리자 단인 GameState에서 단독 소유합니다.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
+    class UDataTable* TreatmentVisualTable;
+
+    // 데이터 기반 페이즈 액터를 동적 생성하기 위한 기본 페이즈 클래스 (BP_Phase_Base)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
+    TSubclassOf<AScenarioPhaseBase> DefaultPhaseClass;
+
+    // 에디터 디테일 패널에서 지정할 환자 스폰 클래스 변수 추가
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scenario|Setup")
+    TSubclassOf<AScenarioPatientBase> DefaultPatientClass;
+
+    // 런타임에 스폰된 환자 액터의 포인터를 보관할 변수 (가비지 컬렉션 방지용 UPROPERTY)
+    UPROPERTY(Transient, BlueprintReadOnly, Category = "Scenario|Runtime")
+    AScenarioPatientBase* SpawnedPatient;
+
+    UFUNCTION()
+    void HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry);
+
+    UPROPERTY()
+    TMap<FGameplayTag, AScenarioEntryBase*> ActiveEntryMap;
+
+    // 힌트활성화를 위한 IZ 캐싱
+    UPROPERTY()
+    TMap<FGameplayTag, FInteractionZoneWrapper> ActiveHintRegistry;
 };

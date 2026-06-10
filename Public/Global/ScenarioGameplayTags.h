@@ -19,6 +19,8 @@ public:
 	FGameplayTag Zone;
 	FGameplayTag Treatment;
 
+	FGameplayTag Object_Patient;
+
 	FGameplayTag Object_Hand;
 	FGameplayTag Object_Hand_R;
 	FGameplayTag Object_Hand_L;

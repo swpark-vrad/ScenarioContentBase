@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
+#include "GameplayTagContainer.h"
 #include "ScenarioPlayerStateBase.generated.h"
 
 UCLASS()
@@ -30,7 +31,7 @@ public:
 	FString UserName;
 
 	/** 블루프린트에서 호출도 가능하고 오버라이드도 가능하도록 매크로를 변경합니다. */
-	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, BlueprintNativeEvent, Category = "Scenario|User")
+	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, BlueprintNativeEvent, Category = "UserData")
 	void SetUserIndex(int32 NewIndex);
 
 	/** BlueprintNativeEvent의 실제 C++ 본문이 될 구현부 함수입니다. */
@@ -39,6 +40,18 @@ public:
 	/** 서버에서 유저 이름을 변경할 때 호출할 함수 */
 	UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "UserData")
 	void SetUserName(const FString& NewName);
+
+	// 유저의 상태를 나타내는 태그 컨테이너
+	UPROPERTY(ReplicatedUsing = OnRep_UserStates, BlueprintReadOnly, Category = "UserData")
+	FGameplayTagContainer UserStates;
+
+	/** 서버 권한 단에서 유저에게 새로운 장구 착용이나 상태 태그를 주입하는 함수입니다. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "UserData")
+	void AddUserStateTag(FGameplayTag NewStateTag);
+
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "UserData")
+	void ApplyUserState();
+	virtual void ApplyUserState_Implementation();
 
 protected:
 	/** 인덱스와 색상 정보가 복제되었을 때 호출되는 함수 (초기 설정용) */
@@ -49,4 +62,6 @@ protected:
 	UFUNCTION()
 	void OnRep_UserName();
 
+	UFUNCTION()
+	void OnRep_UserStates();
 };

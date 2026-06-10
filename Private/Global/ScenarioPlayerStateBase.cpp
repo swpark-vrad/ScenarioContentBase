@@ -19,6 +19,7 @@ void AScenarioPlayerStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 	DOREPLIFETIME(AScenarioPlayerStateBase, UserIndex);
 	DOREPLIFETIME(AScenarioPlayerStateBase, UserColor);
 	DOREPLIFETIME(AScenarioPlayerStateBase, UserName);
+	DOREPLIFETIME(AScenarioPlayerStateBase, UserStates);
 }
 
 void AScenarioPlayerStateBase::SetUserName(const FString& NewName)
@@ -33,6 +34,25 @@ void AScenarioPlayerStateBase::SetUserName(const FString& NewName)
 	{
 		IScenarioPlayerAppearance::Execute_UpdatePawnName(MyPawn, UserName);
 	}
+}
+
+void AScenarioPlayerStateBase::AddUserStateTag(FGameplayTag NewStateTag)
+{
+	// 철저히 서버 권한(Authority) 단에서만 데이터 오염 없이 안전하게 마스터 값을 수정하도록 통제합니다.
+	if (!HasAuthority() || !NewStateTag.IsValid()) return;
+
+	// 중복 방지 체크 후 태그를 컨테이너에 누적 적재합니다.
+	if (!UserStates.HasTagExact(NewStateTag))
+	{
+		UserStates.AddTag(NewStateTag);
+	}
+
+	// 리슨 서버 호스트(방장) 본인의 VR 폰 화면 장구류 연출을 즉각 갱신하기 위해 로컬 OnRep 함수를 수동 가동합니다.
+	OnRep_UserStates();
+}
+
+void AScenarioPlayerStateBase::ApplyUserState_Implementation()
+{
 }
 
 void AScenarioPlayerStateBase::SetUserIndex_Implementation(int32 NewIndex)
@@ -92,4 +112,9 @@ void AScenarioPlayerStateBase::OnRep_UserName()
 	{
 		IScenarioPlayerAppearance::Execute_UpdatePawnName(MyPawn, UserName);
 	}
+}
+
+void AScenarioPlayerStateBase::OnRep_UserStates()
+{
+	ApplyUserState();
 }

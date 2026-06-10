@@ -1,4 +1,6 @@
 ﻿#include "Actor/ScenarioPatientBase.h"
+#include "Global/ScenarioGameStateBase.h"
+#include "Global/ScenarioGameplayTags.h"
 #include "Net/UnrealNetwork.h"
 #include "Components/SkeletalMeshComponent.h"
 
@@ -73,7 +75,36 @@ void AScenarioPatientBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	// 실습 중 변경될 누적 처치 내역 태그들을 멀티플레이 네트워크 복제 목록에 가동
-	DOREPLIFETIME(AScenarioPatientBase, AppliedTreatments);
+	DOREPLIFETIME(AScenarioPatientBase, AppliedTreatments); 
+	DOREPLIFETIME(AScenarioPatientBase, InitialPartState);
+}
+
+FGameplayTag AScenarioPatientBase::GetUniqueIDTag_Implementation() const
+{
+	const FScenarioGameplayTags& GameplayTags = FScenarioGameplayTags::Get();
+	return GameplayTags.Object_Patient;
+}
+
+FGameplayTagContainer AScenarioPatientBase::GetStateTags_Implementation() const
+{
+	// 환자에게 누적된 처치 태그 컨테이너를 구역(IZ)에 그대로 반환합니다.
+	return AppliedTreatments;
+}
+
+void AScenarioPatientBase::InitializePartState(FPatientPartState PartState)
+{
+	if (!HasAuthority()) return;
+
+	// 서버 권한 단에서 부상 상태 구조체를 원본에 적재합니다.
+	InitialPartState = PartState;
+
+	// 서버(호스트) 플레이어 화면의 비주얼 조립을 위해 즉시 실행합니다.
+	ApplyInitialPartState(InitialPartState);
+}
+
+void AScenarioPatientBase::OnRep_InitialPartState()
+{
+	ApplyInitialPartState(InitialPartState);
 }
 
 void AScenarioPatientBase::RequestSetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value)
@@ -87,6 +118,44 @@ void AScenarioPatientBase::RequestSetMorphTarget(EPatientMeshType MeshType, FNam
 	{
 		// 렌더링 소유권이 없는 원격 클라이언트 VR 기기에서 시도한 경우 안전하게 서버 RPC 우회로 개방
 		Server_SetMorphTarget(MeshType, MorphTargetName, Value);
+	}
+}
+
+void AScenarioPatientBase::AddTreatmentVisuals(FGameplayTag VisualID)
+{
+	if (!VisualID.IsValid() || SpawnedVisualComponents.Contains(VisualID)) return;
+
+	// 환자는 테이블을 직접 참조하지 않고, 전역 게이트웨이인 GameState에 데이터를 정중히 요청합니다.
+	AScenarioGameStateBase* GS = GetWorld()->GetGameState<AScenarioGameStateBase>();
+	if (!GS) return;
+
+	FTreatmentVisuals VisualData;
+	if (GS->GetTreatmentVisualData(VisualID, VisualData))
+	{
+		// 넘겨받은 순수 구조체 내부에 명시된 Soft Object 메쉬를 이 타이밍에 레이지 로드(Lazy Load)합니다.
+		UStaticMesh* LoadedMesh = VisualData.VisualMesh.LoadSynchronous();
+		USkeletalMeshComponent* BaseSkelMesh = FindComponentByClass<USkeletalMeshComponent>();
+
+		if (LoadedMesh && BaseSkelMesh)
+		{
+			UStaticMeshComponent* NewMeshComp = NewObject<UStaticMeshComponent>(this);
+			if (NewMeshComp)
+			{
+				NewMeshComp->SetStaticMesh(LoadedMesh);
+				NewMeshComp->RegisterComponent();
+
+				// 순수하게 가공되어 배달된 소켓 명칭과 오프셋 트랜스폼 정보를 그대로 적용해 부착합니다.
+				FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
+				NewMeshComp->AttachToComponent(BaseSkelMesh, AttachRules, VisualData.TargetSocketName);
+				NewMeshComp->SetRelativeTransform(VisualData.RelativeOffset);
+
+				// 비주얼 전용 메시이기 때문에 콜리전 비활성화
+				NewMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+				// 보관 맵에 등록하여 환자 본연의 엔티티 가시성 표현 책임을 완결합니다.
+				SpawnedVisualComponents.Add(VisualID, NewMeshComp);
+			}
+		}
 	}
 }
 

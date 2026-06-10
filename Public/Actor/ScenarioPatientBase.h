@@ -3,6 +3,8 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "GameplayTagContainer.h"
+#include "Interface/InteractableTagInterface.h"
+#include "Data/ScenarioDataTypes.h"
 #include "ScenarioPatientBase.generated.h"
 
 // 6개의 모듈러 메시 컴포넌트를 명확하게 가리키기 위한 가독성용 열거형
@@ -31,20 +33,13 @@ struct FTreatmentAdditionalOptions
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTreatmentAppliedSignature, FGameplayTag, TreatmentTag, const FTreatmentAdditionalOptions&, AdditionalOptions);
 
 UCLASS()
-class SCENARIOCONTENT_API AScenarioPatientBase : public AActor
+class SCENARIOCONTENT_API AScenarioPatientBase : public AActor, public IInteractableTagInterface
 {
 	GENERATED_BODY()
 
 public:
 	AScenarioPatientBase();
 
-protected:
-	virtual void BeginPlay() override;
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	// 블루프린트 에디터 뷰포트에서 실시간으로 포즈 동기화를 처리하기 위해 OnConstruction을 추가합니다.
-	virtual void OnConstruction(const FTransform& Transform) override;
-
-public:
 	// ======================================================================
 	// 요구사항 1. 6개의 독립형 스켈레탈 메시 컴포넌트 인프라 구축
 	// ======================================================================
@@ -73,10 +68,44 @@ public:
 	// 요구사항 2. 호스트 및 클라이언트 전체 전파용 모프 타겟 RPC 시스템
 	// ======================================================================
 	/** 외부(도구/컨트롤러)에서 환자의 모프 타겟 조작을 요청할 때 가동하는 런타임 입구 함수 */
+	UPROPERTY(ReplicatedUsing = OnRep_InitialPartState, BlueprintReadOnly, Category = "Patient|Treatment")
+	FPatientPartState InitialPartState;
+
+	UFUNCTION()
+	void OnRep_InitialPartState();
+
+	void InitializePartState(FPatientPartState PartState);
+
 	UFUNCTION(BlueprintCallable, Category = "Patient|Visuals")
 	void RequestSetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
 
+	/** 환자 본인에게 영구 누적 적용된 처치(술기) 태그 컨테이너 (레이트 조이너 유저도 리플리케이션 자동 동기화) */
+	UPROPERTY(ReplicatedUsing = OnRep_AppliedTreatments, BlueprintReadOnly, Category = "Patient|Treatment")
+	FGameplayTagContainer AppliedTreatments;
+
+	UFUNCTION()
+	void OnRep_AppliedTreatments();
+
+	UPROPERTY(BlueprintAssignable, Category = "Patient|Events")
+	FOnTreatmentAppliedSignature OnTreatmentApplied;
+
+	/** 서버 권한(Authority) 단에서 처치 성공 정보를 주입하고 전역 알림 이벤트를 가동시키는 함수 */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Treatment")
+	void ApplyTreatment(FGameplayTag TreatmentTag, const FTreatmentAdditionalOptions& AdditionalOptions);
+
+	// 처치시 비주얼메시 추가
+	UFUNCTION(BlueprintCallable, Category = "Patient|Visual")
+	void AddTreatmentVisuals(FGameplayTag VisualID);
+
 protected:
+	virtual void BeginPlay() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	// 블루프린트 에디터 뷰포트에서 실시간으로 포즈 동기화를 처리하기 위해 OnConstruction을 추가합니다.
+	virtual void OnConstruction(const FTransform& Transform) override;
+
+	virtual FGameplayTag GetUniqueIDTag_Implementation() const override;
+	virtual FGameplayTagContainer GetStateTags_Implementation() const override;
+
 	/** 원격 클라이언트 기기에서 다이렉트로 호출을 시도했을 때 소유권 예외 처리용 서버 RPC */
 	UFUNCTION(Server, Reliable)
 	void Server_SetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
@@ -93,25 +122,14 @@ protected:
 	void RefreshPatientVisuals();
 	virtual void RefreshPatientVisuals_Implementation();
 
+	UPROPERTY()
+	TMap<FGameplayTag, UStaticMeshComponent*> SpawnedVisualComponents;
+
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable, Category = "Patient|Treatment")
+	void ApplyInitialPartState(const FPatientPartState& PartState);
+
 private:
 	/** 내부 헬퍼: 열거형 분기를 통해 타겟팅된 메시 컴포넌트의 주소 포인터를 반환 */
 	USkeletalMeshComponent* GetMeshComponentByType(EPatientMeshType MeshType) const;
 
-	// ======================================================================
-	// 요구사항 3. 태그 기반 처치 상태 검증 및 전역 이벤트 델리게이트 시스템
-	// ======================================================================
-public:
-	/** 환자 본인에게 영구 누적 적용된 처치(술기) 태그 컨테이너 (레이트 조이너 유저도 리플리케이션 자동 동기화) */
-	UPROPERTY(ReplicatedUsing = OnRep_AppliedTreatments, BlueprintReadOnly, Category = "Patient|Treatment")
-	FGameplayTagContainer AppliedTreatments;
-
-	UFUNCTION()
-	void OnRep_AppliedTreatments();
-
-	UPROPERTY(BlueprintAssignable, Category = "Patient|Events")
-	FOnTreatmentAppliedSignature OnTreatmentApplied;
-
-	/** 서버 권한(Authority) 단에서 처치 성공 정보를 주입하고 전역 알림 이벤트를 가동시키는 함수 */
-	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Treatment")
-	void ApplyTreatment(FGameplayTag TreatmentTag, const FTreatmentAdditionalOptions& AdditionalOptions);
 };
