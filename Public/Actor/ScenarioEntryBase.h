@@ -18,10 +18,6 @@ class SCENARIOCONTENT_API AScenarioEntryBase : public AActor
 public:
 	AScenarioEntryBase();
 
-protected:
-	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
-
-public:
 	// ==========================================
 	// 1. 엔트리 기본 정보
 	// ==========================================
@@ -72,6 +68,12 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|Setup")
 	virtual void InitializeEntry(AScenarioPhaseBase* InOwnerPhase, AInteractionZoneBase* TargetZone = nullptr);
 
+	UFUNCTION(BlueprintPure, Category = "Entry|Data")
+	const TArray<class AInteractionZoneBase*>& GetAssociatedZones() const;
+
+	UFUNCTION(BlueprintPure, Category = "Entry|Data")
+	bool FindAssociatedZone(FGameplayTag ZoneID, class AInteractionZoneBase*& FindZone) const;
+
 	// [신규] 페이즈가 이 엔트리의 체크를 시작할 때 호출
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|Control")
 	virtual void StartEntry();
@@ -105,4 +107,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|State")
 	virtual void ForceToCompleteEntry();
+
+protected:
+	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+
+private:
+	UPROPERTY()
+	TArray<class AInteractionZoneBase*> AssociatedZones;
 };

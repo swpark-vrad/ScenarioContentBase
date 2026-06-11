@@ -36,7 +36,29 @@ void AScenarioEntryBase::InitializeEntry(AScenarioPhaseBase* InOwnerPhase, AInte
 	if (TargetZone)
 	{
 		TargetZone->OnInteractionTriggered.AddDynamic(this, &AScenarioEntryBase::BroadcastProcessPayload);
+		AssociatedZones.AddUnique(TargetZone);
 	}
+}
+
+const TArray<class AInteractionZoneBase*>& AScenarioEntryBase::GetAssociatedZones() const
+{
+	return AssociatedZones;
+}
+
+ bool AScenarioEntryBase::FindAssociatedZone(FGameplayTag ZoneID, AInteractionZoneBase*& FindZone) const
+{
+	if (!ZoneID.IsValid()) return false;
+
+	for (AInteractionZoneBase* Zone : AssociatedZones)
+	{
+		if (Zone->ZoneID == ZoneID)
+		{
+			FindZone = Zone;
+			return true;
+		}
+	}
+	FindZone = nullptr;
+	return false;
 }
 
 // =====================================

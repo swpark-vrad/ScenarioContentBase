@@ -19,14 +19,18 @@ AInteractionZoneBase::AInteractionZoneBase()
 	HighlightMeshComp = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HighlightMeshComp"));
 	HighlightMeshComp->SetupAttachment(CollisionBox);
 	HighlightMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision); // 메시는 충돌 연산 제외
-	HighlightMeshComp->SetVisibility(false);	// 비저블 비활성화
+
 }
 
 void AInteractionZoneBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// 생성자에서 설정시 에디터에서 보이지 않기때문에 BeginPlay에서 호출
+	HighlightMeshComp->SetVisibility(false);
+
 	if (HasAuthority())
+
 	{
 		OnRep_ZoneData();
 	}

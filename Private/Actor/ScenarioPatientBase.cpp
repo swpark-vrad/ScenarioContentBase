@@ -68,6 +68,7 @@ void AScenarioPatientBase::BeginPlay()
 	Super::BeginPlay();
 
 	RefreshPatientVisuals();
+
 }
 
 void AScenarioPatientBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -77,6 +78,9 @@ void AScenarioPatientBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	// 실습 중 변경될 누적 처치 내역 태그들을 멀티플레이 네트워크 복제 목록에 가동
 	DOREPLIFETIME(AScenarioPatientBase, AppliedTreatments); 
 	DOREPLIFETIME(AScenarioPatientBase, InitialPartState);
+
+	DOREPLIFETIME(AScenarioPatientBase, VitalSign);
+	DOREPLIFETIME(AScenarioPatientBase, DisplayVitalSign);
 }
 
 FGameplayTag AScenarioPatientBase::GetUniqueIDTag_Implementation() const
@@ -121,18 +125,19 @@ void AScenarioPatientBase::RequestSetMorphTarget(EPatientMeshType MeshType, FNam
 	}
 }
 
-void AScenarioPatientBase::AddTreatmentVisuals(FGameplayTag VisualID)
+bool AScenarioPatientBase::AddTreatmentVisuals(FGameplayTag VisualID, UStaticMeshComponent*& OutMeshComp)
 {
-	if (!VisualID.IsValid() || SpawnedVisualComponents.Contains(VisualID)) return;
+	// 초기화 작업을 통해 실패 시 안전하게 nullptr을 가지도록 방어합니다.
+	OutMeshComp = nullptr;
 
-	// 환자는 테이블을 직접 참조하지 않고, 전역 게이트웨이인 GameState에 데이터를 정중히 요청합니다.
+	if (!VisualID.IsValid() || SpawnedVisualComponents.Contains(VisualID)) return false;
+
 	AScenarioGameStateBase* GS = GetWorld()->GetGameState<AScenarioGameStateBase>();
-	if (!GS) return;
+	if (!GS) return false;
 
 	FTreatmentVisuals VisualData;
 	if (GS->GetTreatmentVisualData(VisualID, VisualData))
 	{
-		// 넘겨받은 순수 구조체 내부에 명시된 Soft Object 메쉬를 이 타이밍에 레이지 로드(Lazy Load)합니다.
 		UStaticMesh* LoadedMesh = VisualData.VisualMesh.LoadSynchronous();
 		USkeletalMeshComponent* BaseSkelMesh = FindComponentByClass<USkeletalMeshComponent>();
 
@@ -144,19 +149,28 @@ void AScenarioPatientBase::AddTreatmentVisuals(FGameplayTag VisualID)
 				NewMeshComp->SetStaticMesh(LoadedMesh);
 				NewMeshComp->RegisterComponent();
 
-				// 순수하게 가공되어 배달된 소켓 명칭과 오프셋 트랜스폼 정보를 그대로 적용해 부착합니다.
 				FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
 				NewMeshComp->AttachToComponent(BaseSkelMesh, AttachRules, VisualData.TargetSocketName);
 				NewMeshComp->SetRelativeTransform(VisualData.RelativeOffset);
 
-				// 비주얼 전용 메시이기 때문에 콜리전 비활성화
 				NewMeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-				// 보관 맵에 등록하여 환자 본연의 엔티티 가시성 표현 책임을 완결합니다.
 				SpawnedVisualComponents.Add(VisualID, NewMeshComp);
+
+				// 생성된 컴포넌트 주소를 출력 파라미터에 할당하고 최종 성공을 리턴합니다.
+				OutMeshComp = NewMeshComp;
+				return true;
 			}
 		}
 	}
+
+	return false;
+}
+
+bool AScenarioPatientBase::CheckTreatment(FGameplayTag TreatmentTag)
+{
+	// 상위 태그도 체크할 수 있도록 HasTag 사용
+	return AppliedTreatments.HasTag(TreatmentTag);
 }
 
 void AScenarioPatientBase::Server_SetMorphTarget_Implementation(EPatientMeshType MeshType, FName MorphTargetName, float Value)
@@ -184,6 +198,21 @@ USkeletalMeshComponent* AScenarioPatientBase::GetMeshComponentByType(EPatientMes
 	}
 }
 
+void AScenarioPatientBase::ActivatePatient_Implementation()
+{
+	// 모든 클라이언트 및 서버 공통: C++ 기본 활성화 로그 및 디폴트 처리
+	UE_LOG(LogTemp, Log, TEXT("ScenarioPatientBase: Patient [%s] is now officially activated."), *GetName());
+
+	// 서버에서만 1초에 한번씩 바이탈사인 랜덤값 계산
+	if (HasAuthority())
+	{
+		// 초기 값 장전
+		UpdateDisplayVitalSigns();
+		GetWorldTimerManager().SetTimer(DisplayVitalTimerHandle, this, &AScenarioPatientBase::RefreshRandomValue, 1.0f, true);
+	}
+
+}
+
 void AScenarioPatientBase::ApplyTreatment(FGameplayTag TreatmentTag, const FTreatmentAdditionalOptions& AdditionalOptions)
 {
 	// 데이터 오염 및 중복 패킷 변조를 막기 위해 철저히 서버 권한을 가졌을 때에만 실무 데이터 갱신을 허용
@@ -195,12 +224,7 @@ void AScenarioPatientBase::ApplyTreatment(FGameplayTag TreatmentTag, const FTrea
 		AppliedTreatments.AddTag(TreatmentTag);
 	}
 
-	RefreshPatientVisuals();
-
-	if (OnTreatmentApplied.IsBound())
-	{
-		OnTreatmentApplied.Broadcast(TreatmentTag, AdditionalOptions);
-	}
+	OnRep_AppliedTreatments();
 
 	UE_LOG(LogTemp, Log, TEXT("Patient: 환자 본체에 새로운 처치 상태 데이터가 영구 적재되었습니다. (태그 명칭: %s)"), *TreatmentTag.ToString());
 }
@@ -209,6 +233,12 @@ void AScenarioPatientBase::OnRep_AppliedTreatments()
 {
 	// 1. 전달받은 최신 태그 상태를 기반으로 모든 클라이언트의 환자 메쉬/모프 외형을 전수 갱신합니다.
 	RefreshPatientVisuals();
+
+	if (OnTreatmentApplied.IsBound())
+	{
+		OnTreatmentApplied.Broadcast();
+	}
+
 }
 
 void AScenarioPatientBase::RefreshPatientVisuals_Implementation()
@@ -227,4 +257,102 @@ void AScenarioPatientBase::Local_SetMorphTarget(EPatientMeshType MeshType, FName
 		UE_LOG(LogTemp, Log, TEXT("Patient: 로컬 연출 처리 - [%d]번 파트 메시의 모프타겟 '%s' 수치가 %.2f 로 변경되었습니다."),
 			static_cast<int32>(MeshType), *MorphTargetName.ToString(), Value);
 	}
+}
+
+void AScenarioPatientBase::OnRep_VitalSign()
+{
+	// 복제 데이터가 수신되면 리스너(모니터 등)들에게 변경을 알립니다.
+	if (OnVitalSignChanged.IsBound())
+	{
+		OnVitalSignChanged.Broadcast(VitalSign);
+	}
+}
+
+void AScenarioPatientBase::OnRep_DisplayVitalSign()
+{
+	// 3. 서버에서 값이 바뀌어 패킷이 날아오면, 클라이언트 기기에서도 이 OnRep이 완벽하게 동시 작동합니다.
+	if (OnVitalSignChanged.IsBound())
+	{
+		// 원본 데이터가 아닌, 난수가 더해져서 도달한 최신 디스플레이 구조체를 위젯 중계자(WA)에게 던집니다.
+		OnVitalSignChanged.Broadcast(DisplayVitalSign);
+	}
+}
+
+void AScenarioPatientBase::RefreshRandomValue()
+{
+	RandomHR = FMath::RandRange(-2, 2);
+	RandomRR = FMath::RandRange(-2, 2);
+	RandomSPO2 = FMath::RandRange(-2, 2);
+
+	UpdateDisplayVitalSigns();
+}
+
+void AScenarioPatientBase::UpdateDisplayVitalSigns()
+{
+	if (!HasAuthority()) return;
+
+	// 1. 기준치(VitalSign) 데이터를 기반으로 매초 새로운 난수를 더해 'DisplayVitalSign'의 값을 실제로 변조합니다.
+	DisplayVitalSign.IsABP = VitalSign.IsABP;
+	DisplayVitalSign.MinBP = VitalSign.MinBP;
+	DisplayVitalSign.MaxBP = VitalSign.MaxBP;
+	DisplayVitalSign.BT = VitalSign.BT;
+
+	DisplayVitalSign.HR = VitalSign.HR + RandomHR;
+	DisplayVitalSign.RR = VitalSign.RR + RandomRR;
+	DisplayVitalSign.SPO2 = FMath::Clamp(VitalSign.SPO2 + RandomSPO2, 0, 100);
+
+	// 2. 서버(호스트) 본인 화면의 위젯 동기화를 위해 수동 호출합니다.
+	OnRep_DisplayVitalSign();
+}
+
+void AScenarioPatientBase::SetVitalSign(const FVitalSign& NewVitalSign)
+{
+	if (!HasAuthority()) return;
+
+	VitalSign = NewVitalSign;
+
+	// 마스터 값이 바뀌면 즉시 디스플레이 값도 동기화하여 반응성을 높입니다.
+	UpdateDisplayVitalSigns();
+}
+
+void AScenarioPatientBase::SetHeartRate(int32 NewHR)
+{
+	if (!HasAuthority()) return;
+
+	VitalSign.HR = NewHR;
+	UpdateDisplayVitalSigns();
+}
+
+void AScenarioPatientBase::SetRespiratoryRate(int32 NewRR)
+{
+	if (!HasAuthority()) return;
+
+	VitalSign.RR = NewRR;
+	UpdateDisplayVitalSigns();
+}
+
+void AScenarioPatientBase::SetSPO2(int32 NewSPO2)
+{
+	if (!HasAuthority()) return;
+
+	VitalSign.SPO2 = NewSPO2;
+	UpdateDisplayVitalSigns();
+}
+
+void AScenarioPatientBase::SetBloodPressure(int32 NewMinBP, int32 NewMaxBP, bool bIsABP)
+{
+	if (!HasAuthority()) return;
+
+	VitalSign.MinBP = NewMinBP;
+	VitalSign.MaxBP = NewMaxBP;
+	VitalSign.IsABP = bIsABP;
+	UpdateDisplayVitalSigns();
+}
+
+void AScenarioPatientBase::SetBodyTemperature(float NewBT)
+{
+	if (!HasAuthority()) return;
+
+	VitalSign.BT = NewBT;
+	UpdateDisplayVitalSigns();
 }

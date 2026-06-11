@@ -193,3 +193,29 @@ struct FPatientPartState
 	EBodyPartState LeftLegState = EBodyPartState::Normal;
 };
 
+USTRUCT(BlueprintType)
+struct FVitalSign
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
+	bool IsABP = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
+	int32 MinBP = 80;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
+	int32 MaxBP = 120;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
+	int32 HR = 80;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
+	int32 RR = 20;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
+	int32 SPO2 = 98;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
+	float BT = 36.5f;
+};

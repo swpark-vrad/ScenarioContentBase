@@ -44,6 +44,9 @@ public:
 	// 변수 & 델리게이트
 	// ==========================================
 	// ExposeOnSpawn을 통해 스폰 시점에 데이터를 주입받고, RepNotify로 클라이언트 동기화
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Zone|Data")
+	FGameplayTag ZoneID;
+
 	UPROPERTY(ReplicatedUsing = OnRep_ZoneData, BlueprintReadWrite, EditAnywhere, Category = "Zone|Data", meta = (ExposeOnSpawn = "true"))
 	FZoneData ZoneData;
 

@@ -12,6 +12,7 @@ class AScenarioEntryBase;
 class AInteractionZoneBase;
 class AScenarioPatientBase;
 class APlayerState;
+class AScenarioPatientBase;
 
 // 델리게이트
 // 시나리오 데이터 로드 완료시 호출
@@ -28,6 +29,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnScenarioStartedSignature, bool, b
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnScenarioPausedSignature, bool, bIsPaused);
 // 페이즈 시작시 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPhaseStartedSignature, FName, PhaseName);
+// 환자 스폰시 호출
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPatientSpawnedSignature, class AScenarioPatientBase*, SpawnedPatient);
 // 페이즈 데이터 변경시(새로운 페이즈로 바뀌거나, 엔트리 체크 변경) 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntryDatasUpdatedSignature);
 
@@ -117,6 +120,9 @@ public:
 
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|Control")
     void RequestCompleteEntryByID(FGameplayTag EntryID);
+
+    UPROPERTY(BlueprintAssignable, Category = "Scenario|Patient")
+    FOnPatientSpawnedSignature OnPatientSpawned;
 
     UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Scenario|Lifecycle")
     void ActivatePatient(USceneComponent* InParentComponent);
@@ -232,8 +238,11 @@ protected:
     TSubclassOf<AScenarioPatientBase> DefaultPatientClass;
 
     // 런타임에 스폰된 환자 액터의 포인터를 보관할 변수 (가비지 컬렉션 방지용 UPROPERTY)
-    UPROPERTY(Transient, BlueprintReadOnly, Category = "Scenario|Runtime")
+    UPROPERTY(ReplicatedUsing = OnRep_SpawnedPatient, Transient, BlueprintReadOnly, Category = "Scenario|Runtime")
     AScenarioPatientBase* SpawnedPatient;
+
+    UFUNCTION()
+    void OnRep_SpawnedPatient();
 
     UFUNCTION()
     void HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry);

@@ -46,24 +46,6 @@ void UScenarioLogSubsystem::LogAction(const FString& LogMessage)
 
         FString FinalMessage = LogMessage;
 
-        // 만약 호스트 자신이 직접 이 함수를 호출했고, 아직 이름 테이블 작업([유저명])이 안 되어 있다면
-        // 호스트의 PlayerState에서 이름을 찾아 붙여줍니다.
-        if (!LogMessage.StartsWith(TEXT("[")))
-        {
-            FString HostName = TEXT("Host_PC");
-            if (APlayerController* LocalPC = World->GetFirstPlayerController())
-            {
-                if (AScenarioPlayerStateBase* HostPS = LocalPC->GetPlayerState<AScenarioPlayerStateBase>())
-                {
-                    if (!HostPS->UserName.IsEmpty())
-                    {
-                        HostName = HostPS->UserName;
-                    }
-                }
-            }
-            FinalMessage = FString::Printf(TEXT("[%s] %s"), *HostName, *LogMessage);
-        }
-
         // 시간 계산 및 로그 배열 추가 로직 (기존과 동일)
         float ElapsedTime = World->GetTimeSeconds();
         int32 Hours = FMath::FloorToInt(ElapsedTime / 3600.0f);

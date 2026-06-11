@@ -30,7 +30,10 @@ struct FTreatmentAdditionalOptions
 };
 
 // 처치가 완료되었을 때 호스트/클라 UI 및 연출 엔진이 수신할 블루프린트 개방형 전역 델리게이트 선언
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTreatmentAppliedSignature, FGameplayTag, TreatmentTag, const FTreatmentAdditionalOptions&, AdditionalOptions);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnTreatmentAppliedSignature);
+
+// 바이탈 사인 변경시 호출될 델리게이트
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnVitalSignChangedSignature, const FVitalSign&, NewVitalSign);
 
 UCLASS()
 class SCENARIOCONTENT_API AScenarioPatientBase : public AActor, public IInteractableTagInterface
@@ -79,6 +82,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Patient|Visuals")
 	void RequestSetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
 
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Patient|Lifecycle")
+	void ActivatePatient();
+	virtual void ActivatePatient_Implementation();
+
 	/** 환자 본인에게 영구 누적 적용된 처치(술기) 태그 컨테이너 (레이트 조이너 유저도 리플리케이션 자동 동기화) */
 	UPROPERTY(ReplicatedUsing = OnRep_AppliedTreatments, BlueprintReadOnly, Category = "Patient|Treatment")
 	FGameplayTagContainer AppliedTreatments;
@@ -95,7 +102,40 @@ public:
 
 	// 처치시 비주얼메시 추가
 	UFUNCTION(BlueprintCallable, Category = "Patient|Visual")
-	void AddTreatmentVisuals(FGameplayTag VisualID);
+	bool AddTreatmentVisuals(FGameplayTag VisualID, UStaticMeshComponent*& OutMeshComp);
+
+	UFUNCTION(BlueprintPure, Category = "Patient|Treatment")
+	bool CheckTreatment(FGameplayTag TreatmentTag);
+
+	// ======================================================================
+	// VitalSign
+	// ======================================================================
+	UPROPERTY(BlueprintAssignable, Category = "Patient|Events")
+	FOnVitalSignChangedSignature OnVitalSignChanged;
+
+	/** 통짜 바이탈사인 정보 직접 수정 함수 (서버 권한 전용) */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
+	void SetVitalSign(const FVitalSign& NewVitalSign);
+
+	/** 특정 항목 수정: 심박수 변경 */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
+	void SetHeartRate(int32 NewHR);
+
+	/** 특정 항목 수정: 호흡수 변경 */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
+	void SetRespiratoryRate(int32 NewRR);
+
+	/** 특정 항목 수정: 산소포화도 변경 */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
+	void SetSPO2(int32 NewSPO2);
+
+	/** 특정 항목 수정: 혈압 정보 변경 */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
+	void SetBloodPressure(int32 NewMinBP, int32 NewMaxBP, bool bIsABP);
+
+	/** 특정 항목 수정: 체온 변경 */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
+	void SetBodyTemperature(float NewBT);
 
 protected:
 	virtual void BeginPlay() override;
@@ -114,7 +154,7 @@ protected:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_SetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
 
-	UFUNCTION(BlueprintCallable, Category = "Patient|Morph")
+	UFUNCTION(BlueprintCallable)
 	void Local_SetMorphTarget(EPatientMeshType MeshType, FName MorphTargetName, float Value);
 
 	// 레이트 조이너 및 데이터 변동 시 현재 태그 컨테이너를 기반으로 외형을 강제 동기화하는 핵심 함수입니다.
@@ -128,8 +168,35 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable, Category = "Patient|Treatment")
 	void ApplyInitialPartState(const FPatientPartState& PartState);
 
+	UPROPERTY(ReplicatedUsing = OnRep_VitalSign, BlueprintReadOnly, Category = "Patient|Vital")
+	FVitalSign VitalSign;
+
+	UFUNCTION()
+	void OnRep_VitalSign();
+
+	// UI에서 참조할 랜덤값 적용 VitalSign
+	UPROPERTY(ReplicatedUsing = OnRep_DisplayVitalSign, BlueprintReadOnly, Category = "Patient|Vital")
+	FVitalSign DisplayVitalSign;
+
+	UFUNCTION()
+	void OnRep_DisplayVitalSign();
+
+
+	void RefreshRandomValue();
+
+	/** 서버에서 주기적으로 랜덤 보정값을 갱신하는 함수 */
+	void UpdateDisplayVitalSigns();
+
+	/** 바이탈사인 변동 타이머 핸들 */
+	FTimerHandle DisplayVitalTimerHandle;
+
 private:
 	/** 내부 헬퍼: 열거형 분기를 통해 타겟팅된 메시 컴포넌트의 주소 포인터를 반환 */
 	USkeletalMeshComponent* GetMeshComponentByType(EPatientMeshType MeshType) const;
+
+	// VitalSign 랜덤값
+	int32 RandomHR;
+	int32 RandomRR;
+	int32 RandomSPO2;
 
 };

@@ -39,6 +39,8 @@ void AScenarioGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
     // 늦게 진입한 유저를 위해 시작 변수와 일시정지 변수를 함께 복제 목록에 등록합니다
     DOREPLIFETIME(AScenarioGameStateBase, bIsStarted);
     DOREPLIFETIME(AScenarioGameStateBase, bIsPaused);
+
+    DOREPLIFETIME(AScenarioGameStateBase, SpawnedPatient);
 }
 
 void AScenarioGameStateBase::OnPlayerIdentityReady(APlayerState* PlayerState)
@@ -226,6 +228,14 @@ void AScenarioGameStateBase::OnRep_ProgressTime()
     }
 }
 
+void AScenarioGameStateBase::OnRep_SpawnedPatient()
+{
+    if (SpawnedPatient && OnPatientSpawned.IsBound())
+    {
+        OnPatientSpawned.Broadcast(SpawnedPatient);
+    }
+}
+
 void AScenarioGameStateBase::HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry)
 {
     if (!CompletedEntry) return;
@@ -304,7 +314,9 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
     PatientSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
     // 환자 안보이는 위치에 스폰
-    SpawnedPatient = GetWorld()->SpawnActor<AScenarioPatientBase>(DefaultPatientClass, FVector(0.0f,0.0f,-10000.0f), FRotator::ZeroRotator, PatientSpawnParams);
+    FVector PatientSpawnLoaction = FVector(0.0f, 0.0f, -10000.0f);
+    //FVector PatientSpawnLoaction = FVector(0.0f, 0.0f, 100.0f); // 개발용
+    SpawnedPatient = GetWorld()->SpawnActor<AScenarioPatientBase>(DefaultPatientClass, PatientSpawnLoaction, FRotator::ZeroRotator, PatientSpawnParams);
 
     USkeletalMeshComponent* PatientMesh = nullptr;
     if (SpawnedPatient)
@@ -314,6 +326,8 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
         SpawnedPatient->InitializePartState(ScenarioData.PatientPartState);
 
         UE_LOG(LogTemp, Log, TEXT("GameState: 환자 베이스 액터 동적 스폰 및 데이터 바인딩 완료."));
+
+        OnRep_SpawnedPatient();
     }
     else
     {
@@ -380,9 +394,15 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                             {
                             case EZoneAnchorType::Patient:
                             {
-                                if (PatientMesh && !Wrapper.ZoneData.TargetSocket.IsNone())
+                                /*if (PatientMesh && !Wrapper.ZoneData.TargetSocket.IsNone())
                                 {
                                     InitialTransform = PatientMesh->GetSocketTransform(Wrapper.ZoneData.TargetSocket);
+                                }*/
+                                if (PatientMesh)
+                                {
+                                    // 소켓 트랜스폼에 상대 오프셋을 먼저 곱해 최종 월드 트랜스폼을 미리 계산합니다.
+                                    FTransform BaseTransform = Wrapper.ZoneData.TargetSocket.IsNone() ? PatientMesh->GetComponentTransform() : PatientMesh->GetSocketTransform(Wrapper.ZoneData.TargetSocket);
+                                    InitialTransform = Wrapper.ZoneData.RelativeOffset * BaseTransform;
                                 }
                                 AttachTargetComponent = PatientMesh;
                                 break;
@@ -420,6 +440,8 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
                                 break;
                             }
                             }
+                            // 스폰 스케일은 1로 고정
+                            InitialTransform.SetScale3D(FVector(1.0f));
 
                             // 지연 스폰 가동 후 고유 설정 정보 주입
                             AInteractionZoneBase* SpawnedZone = GetWorld()->SpawnActorDeferred<AInteractionZoneBase>(
@@ -428,6 +450,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
 
                             if (SpawnedZone)
                             {
+                                SpawnedZone->ZoneID = Wrapper.ZoneID;
                                 SpawnedZone->ZoneData = Wrapper.ZoneData;
                                 SpawnedZone->FinishSpawning(InitialTransform);
 
@@ -450,9 +473,12 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
 
                                 if (AttachTargetComponent)
                                 {
-                                    FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
+                                    /*FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, EAttachmentRule::SnapToTarget, EAttachmentRule::KeepWorld, false);
                                     SpawnedZone->AttachToComponent(AttachTargetComponent, AttachRules, Wrapper.ZoneData.TargetSocket);
-                                    SpawnedZone->SetActorRelativeTransform(Wrapper.ZoneData.RelativeOffset);
+                                    SpawnedZone->SetActorRelativeTransform(Wrapper.ZoneData.RelativeOffset);*/
+                                    // InitialTransform으로 이미 계산했기 때문에 KeepWorld로 어태치
+                                    FAttachmentTransformRules AttachRules(EAttachmentRule::KeepWorld, EAttachmentRule::KeepWorld, EAttachmentRule::KeepWorld, false);
+                                    SpawnedZone->AttachToComponent(AttachTargetComponent, AttachRules, Wrapper.ZoneData.TargetSocket);
                                 }
                                 else if (Wrapper.AnchorType == EZoneAnchorType::StaticWorld)
                                 {
@@ -484,6 +510,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
 
         ScenarioPhases.Add(NewPhase);
     }
+
 
     UE_LOG(LogTemp, Log, TEXT("========================================================================="));
     UE_LOG(LogTemp, Log, TEXT("GameState: 최신 메타데이터 구조 기반 다목적 가상 시뮬레이터 환경 조립 성공."));
@@ -764,6 +791,7 @@ void AScenarioGameStateBase::ActivatePatient_Implementation(USceneComponent* InP
 
     // 총괄 관리자인 GameState가 명령을 내려 환자 액터 본체를 부모 컴포넌트에 하위 종속시킵니다.
     SpawnedPatient->AttachToComponent(InParentComponent, AttachRules);
+    SpawnedPatient->ActivatePatient();
 
     UE_LOG(LogTemp, Log, TEXT("GameState: 환자를 지정된 컴포넌트에 배치하고 시나리오 내 활성화를 완료했습니다."));
 }
