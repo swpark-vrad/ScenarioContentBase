@@ -8,7 +8,16 @@
 class AScenarioEntryBase;
 class AInteractionZoneBase;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnPhaseCompleted, class AScenarioPhaseBase*, CompletedPhase, bool, bIsSuccess);
+// 페이즈의 정밀한 생명주기를 제어하기 위한 상태 정의
+UENUM(BlueprintType)
+enum class EPhaseState : uint8
+{
+	Active,             // 정상 진행 중
+	Timeover,           // 시간 초과되었으나 다음 단계가 없어 유예(대기) 중인 상태
+	Completed,			// 완료됨
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnPhaseCompleted, class AScenarioPhaseBase*, CompletedPhase, EPhaseState, EndCondition);
 
 UCLASS(Abstract)
 class SCENARIOCONTENT_API AScenarioPhaseBase : public AActor
@@ -39,6 +48,9 @@ public:
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Phase|State")
 	bool bIsPhaseSuccess = false;
+
+	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Scenario")
+	EPhaseState PhaseState = EPhaseState::Active;
 
 	UFUNCTION()
 	virtual void OnRep_IsPhaseCompleted();
@@ -75,7 +87,7 @@ public:
 
 	// [신규] 블루프린트 오버라이드용 이벤트 (페이즈 종료 시)
 	UFUNCTION(BlueprintNativeEvent, Category = "Phase|Events")
-	void ReceiveEndPhase(bool bSuccess);
+	void ReceiveEndPhase(EPhaseState EndCondition);
 
 	UFUNCTION()
 	virtual void OnPhaseTimeout();
@@ -86,5 +98,7 @@ public:
 	UFUNCTION()
 	virtual void HandleEntryCompleted(AScenarioEntryBase* CompletedEntry);
 
-	virtual void EndPhase(bool bSuccess);
+	virtual void EndPhase(EPhaseState EndCondition);
+
+	void DeactivateEntries();
 };

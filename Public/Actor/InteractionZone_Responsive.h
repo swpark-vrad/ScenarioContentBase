@@ -52,9 +52,6 @@ protected:
 	/** 0.1초마다 비동기 쿼리를 날려 직전 프레임 태그 버퍼와 비교 분석하는 핵심 알고리즘 */
 	void OnResponsiveTrackTick();
 
-	/** 액터 소유권 체인을 정밀 역추적하여 상위 VR 유저의 최상위 PlayerState 주소를 반환하는 내부 헬퍼 */
-	APlayerState* GetPlayerStateFromActor(AActor* InActor) const;
-
 	virtual void BroadcastInteractionTriggered(const FInteractionPayload& Payload) override;
 
 	// [선점형 소유권 락] 현재 이 구역을 독점 선점하여 작업 중인 마스터 유저 정보

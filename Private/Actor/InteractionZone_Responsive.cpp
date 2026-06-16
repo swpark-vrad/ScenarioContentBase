@@ -221,26 +221,6 @@ void AInteractionZone_Responsive::OnResponsiveTrackTick()
 	if (bIsTriggering) PreviousInputTags.AddTag(GameplayTags.InputState_Trigger);
 }
 
-APlayerState* AInteractionZone_Responsive::GetPlayerStateFromActor(AActor* InActor) const
-{
-	if (!InActor) return nullptr;
-
-	// 오너십 체인을 끝까지 상향 추적하여 Pawn 또는 Controller로부터 최상위 고유 PlayerState 주소를 안전 인출
-	AActor* CurrentOwner = InActor;
-	while (CurrentOwner)
-	{
-		if (APawn* Pawn = Cast<APawn>(CurrentOwner))
-		{
-			return Pawn->GetPlayerState();
-		}
-		if (AController* Controller = Cast<AController>(CurrentOwner))
-		{
-			return Controller->PlayerState;
-		}
-		CurrentOwner = CurrentOwner->GetOwner();
-	}
-	return nullptr;
-}
 
 void AInteractionZone_Responsive::BroadcastInteractionTriggered(const FInteractionPayload& Payload)
 {

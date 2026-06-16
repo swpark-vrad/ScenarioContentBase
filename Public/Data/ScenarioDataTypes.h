@@ -43,6 +43,9 @@ struct FInteractionPayload
 	AActor* TargetActor = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Payload")
+	class APlayerState* InstigatorPlayerState = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Payload")
 	TMap<FGameplayTag, FString> AdditionalData; // 약물명, 용량 등 추가 정보 딕셔너리
 };
 

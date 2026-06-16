@@ -72,6 +72,9 @@ protected:
 	UFUNCTION(BlueprintCallable, Category = "Zone|Interaction")
 	virtual void BroadcastInteractionTriggered(const FInteractionPayload& Payload);
 
+	/** 액터 소유권 체인을 정밀 역추적하여 상위 VR 유저의 최상위 PlayerState 주소를 반환하는 내부 헬퍼 */
+	APlayerState* GetPlayerStateFromActor(AActor* InActor) const;
+
 	/** [★ 추가] 진입한 액터가 인터페이스를 구현했는지, 필터 태그에 합격했는지 C++ 단에서 초고속 검사하는 방어 함수 */
 	bool IsValidInteractableActor(AActor* OtherActor) const;
 

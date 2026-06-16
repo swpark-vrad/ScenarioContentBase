@@ -97,6 +97,8 @@ bool AInteractionZoneBase::CheckAndBuildPayload_Implementation(AActor* OtherActo
 	OutPayload.InteractionTags.Reset();
 
 	// 도구 액터가 장착한 인터페이스를 통해 실시간 상태 태그 리스트를 수집합니다.
+	OutPayload.InstigatorPlayerState = GetPlayerStateFromActor(OtherActor);
+
 	if (OtherActor && OtherActor->Implements<UInteractableTagInterface>())
 	{
 		FGameplayTag IDTag = IInteractableTagInterface::Execute_GetUniqueIDTag(OtherActor);
@@ -166,4 +168,26 @@ void AInteractionZoneBase::Multicast_SetActivateHint_Implementation(bool bActiva
 	{
 		HighlightMeshComp->SetVisibility(bActivate);
 	}
+}
+
+
+APlayerState* AInteractionZoneBase::GetPlayerStateFromActor(AActor* InActor) const
+{
+	if (!InActor) return nullptr;
+
+	// 오너십 체인을 끝까지 상향 추적하여 Pawn 또는 Controller로부터 최상위 고유 PlayerState 주소를 안전 인출
+	AActor* CurrentOwner = InActor;
+	while (CurrentOwner)
+	{
+		if (APawn* Pawn = Cast<APawn>(CurrentOwner))
+		{
+			return Pawn->GetPlayerState();
+		}
+		if (AController* Controller = Cast<AController>(CurrentOwner))
+		{
+			return Controller->PlayerState;
+		}
+		CurrentOwner = CurrentOwner->GetOwner();
+	}
+	return nullptr;
 }

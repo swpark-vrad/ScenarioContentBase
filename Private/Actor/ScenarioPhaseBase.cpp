@@ -27,6 +27,8 @@ void AScenarioPhaseBase::StartPhase()
 {
 	if (!HasAuthority()) return;
 
+	PhaseState = EPhaseState::Active;
+
 	if (AGameStateBase* GS = GetWorld()->GetGameState())
 	{
 		PhaseStartTime = GS->GetServerWorldTimeSeconds();
@@ -53,12 +55,12 @@ void AScenarioPhaseBase::StartPhase()
 
 // C++ 기본 구현부
 void AScenarioPhaseBase::ReceiveStartPhase_Implementation() {}
-void AScenarioPhaseBase::ReceiveEndPhase_Implementation(bool bSuccess) {}
+void AScenarioPhaseBase::ReceiveEndPhase_Implementation(EPhaseState EndCondition) {}
 
 void AScenarioPhaseBase::OnPhaseTimeout()
 {
 	if (!HasAuthority() || bIsPhaseCompleted) return;
-	EndPhase(false);
+	EndPhase(EPhaseState::Timeover);
 }
 
 void AScenarioPhaseBase::HandleEntryCompleted(AScenarioEntryBase* CompletedEntry)
@@ -69,7 +71,7 @@ void AScenarioPhaseBase::HandleEntryCompleted(AScenarioEntryBase* CompletedEntry
 
 void AScenarioPhaseBase::CheckPhaseCompletion()
 {
-	if (!HasAuthority() || bIsPhaseCompleted) return;
+	if (!HasAuthority()) return;
 
 	bool bAllMandatoryCompleted = true;
 
@@ -84,20 +86,41 @@ void AScenarioPhaseBase::CheckPhaseCompletion()
 
 	if (bAllMandatoryCompleted)
 	{
-		EndPhase(true);
+		EndPhase(EPhaseState::Completed);
 	}
 }
 
-void AScenarioPhaseBase::EndPhase(bool bSuccess)
+void AScenarioPhaseBase::EndPhase(EPhaseState EndCondition)
 {
-	if (bIsPhaseCompleted) return;
-
-	bIsPhaseCompleted = true;
-	bIsPhaseSuccess = bSuccess;
+	// 이미 최종 완료 처리된 상태라면 중복 호출 차단
+	if (PhaseState == EPhaseState::Completed) return;
 
 	GetWorldTimerManager().ClearTimer(PhaseTimerHandle);
 
-	// 1. 아직 진행 중이던 모든 엔트리들을 강제 비활성화(체크 중지)
+	// 전달받은 종료 조건 상태를 그대로 반영
+	PhaseState = EndCondition;
+
+	// 완전히 세션이 종료되는 상태(성공 혹은 완전실패)일 때만 하위 엔트리들을 닫아줍니다.
+	// Overtime(유예) 상태일 때는 이 루프를 건너뛰어 엔트리 상호작용 채널을 살려둡니다.
+	if (PhaseState == EPhaseState::Completed)
+	{
+		for (AScenarioEntryBase* Entry : ActiveEntries)
+		{
+			if (Entry)
+			{
+				Entry->EndEntry();
+			}
+		}
+	}
+
+	// 블루프린트 연출 및 전파 가동
+	ReceiveEndPhase(EndCondition);
+	OnRep_IsPhaseCompleted();
+	OnPhaseCompleted.Broadcast(this, EndCondition);
+}
+
+void AScenarioPhaseBase::DeactivateEntries()
+{
 	for (AScenarioEntryBase* Entry : ActiveEntries)
 	{
 		if (Entry && Entry->bIsActive)
@@ -105,10 +128,4 @@ void AScenarioPhaseBase::EndPhase(bool bSuccess)
 			Entry->EndEntry();
 		}
 	}
-
-	// 2. 블루프린트 종료 이벤트 호출 (액터 정리, UI 연출 등)
-	ReceiveEndPhase(bIsPhaseSuccess);
-
-	OnRep_IsPhaseCompleted();
-	OnPhaseCompleted.Broadcast(this, bIsPhaseSuccess);
 }

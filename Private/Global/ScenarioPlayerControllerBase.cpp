@@ -159,32 +159,36 @@ void AScenarioPlayerControllerBase::Server_RequestShutdownSession_Implementation
     }
 }
 
-bool AScenarioPlayerControllerBase::Server_RequestLog_Validate(const FString& LogMessage)
+bool AScenarioPlayerControllerBase::Server_RequestLog_Validate(const FString& LogInstigator, const FString& LogMessage)
 {
     // 입력 값에 대한 검증이 필요 없다면 통과
     return true;
 }
 
-void AScenarioPlayerControllerBase::Server_RequestLog_Implementation(const FString& LogMessage)
+void AScenarioPlayerControllerBase::Server_RequestLog_Implementation(const FString& LogInstigator, const FString& LogMessage)
 {
-    FString CallerName = TEXT("Unknown_Player");
+    FString FinalInstigator = LogInstigator;
 
-    // 이 컨트롤러를 소유한 플레이어의 PlayerState를 가져와 캐스팅
-    if (AScenarioPlayerStateBase* ScenarioPS = GetPlayerState<AScenarioPlayerStateBase>())
+    // 블루프린트에서 Instigator를 비워두고 호출한 경우 본인의 동기화 이름(UserName)으로 예외 보정
+    if (FinalInstigator.IsEmpty())
     {
-        if (!ScenarioPS->UserName.IsEmpty())
+        FinalInstigator = TEXT("Unknown_Player");
+        if (AScenarioPlayerStateBase* ScenarioPS = GetPlayerState<AScenarioPlayerStateBase>())
         {
-            CallerName = ScenarioPS->UserName;
+            if (!ScenarioPS->UserName.IsEmpty()) FinalInstigator = ScenarioPS->UserName;
         }
     }
 
-    // 호스트의 서브시스템에 로그 기록 요청 (이름 정보를 자동으로 결합)
     if (UGameInstance* GI = GetGameInstance())
     {
         if (UScenarioLogSubsystem* LoggingSubsystem = GI->GetSubsystem<UScenarioLogSubsystem>())
         {
-            FString CombinedMessage = FString::Printf(TEXT("[%s] %s"), *CallerName, *LogMessage);
-            LoggingSubsystem->LogAction(CombinedMessage);
+            // 서버 측 장부에 가공 및 저장 후 모니터 UI 복제 배열에 원스톱 탑재
+            FString Formatted = LoggingSubsystem->AddLog(FinalInstigator, LogMessage);
+            if (AScenarioGameStateBase* GS = GetWorld()->GetGameState<AScenarioGameStateBase>())
+            {
+                GS->AddDisplayLog(Formatted);
+            }
         }
     }
 }

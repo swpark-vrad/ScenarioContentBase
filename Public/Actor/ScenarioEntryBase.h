@@ -8,7 +8,7 @@
 class AInteractionZoneBase;
 class AScenarioPhaseBase;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnEntryCompleted, class AScenarioEntryBase*, CompletedEntry);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEntryCompletedSignature, AScenarioEntryBase*, Entry, bool, bIsForced);
 
 UCLASS(Abstract)
 class SCENARIOCONTENT_API AScenarioEntryBase : public AActor
@@ -57,7 +57,7 @@ public:
 	virtual void OnRep_IsCompleted();
 
 	UPROPERTY(BlueprintAssignable, Category = "Entry|Events")
-	FOnEntryCompleted OnEntryCompleted;
+	FOnEntryCompletedSignature OnEntryCompleted;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Entry|State")
 	AScenarioPhaseBase* OwnerPhase;
@@ -108,8 +108,15 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Entry|State")
 	virtual void ForceToCompleteEntry();
 
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Scenario|Log")
+	FString MakeExecuteMessage() const;
+	virtual FString MakeExecuteMessage_Implementation() const;
+
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Entry|Data")
+	FInteractionPayload CachedCurrentPayload;
 
 private:
 	UPROPERTY()

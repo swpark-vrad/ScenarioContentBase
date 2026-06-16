@@ -91,6 +91,7 @@ void AScenarioEntryBase::BroadcastProcessPayload(const FInteractionPayload& Payl
 	// [핵심 변경] 활성화(bIsActive) 상태가 아니거나 이미 끝났으면 심사하지 않고 무시함
 	if (!HasAuthority()) return;
 
+	CachedCurrentPayload = Payload;
 	ProcessPayload(Payload);
 
 	if (CheckTargetInteraction(Payload))
@@ -120,7 +121,7 @@ void AScenarioEntryBase::CompleteEntry()
 
 		// 클라이언트 동기화 및 페이즈의 성공 조건 판단 리스너 가동
 		OnRep_IsCompleted();
-		OnEntryCompleted.Broadcast(this);
+		OnEntryCompleted.Broadcast(this, false);
 	}
 }
 
@@ -137,7 +138,13 @@ void AScenarioEntryBase::ForceToCompleteEntry()
 
 	// 3. 로컬 호스트 화면 반영 및 상위 페이즈 시스템으로 성공 신호를 즉시 전송합니다.
 	OnRep_IsCompleted();
-	OnEntryCompleted.Broadcast(this);
+	OnEntryCompleted.Broadcast(this, true);
 
-	UE_LOG(LogTemp, Warning, TEXT("Entry: [%s] 엔트리가 관리자 요청에 의해 강제 성공 처리되었습니다."), *EntryName.ToString());
+	//UE_LOG(LogTemp, Warning, TEXT("Entry: [%s] 엔트리가 관리자 요청에 의해 강제 성공 처리되었습니다."), *EntryName.ToString());
+}
+
+FString AScenarioEntryBase::MakeExecuteMessage_Implementation() const
+{
+	// 예: "[Entry.Tag.Name] 미션을 완료했습니다." 형태의 기본 문자열 반환
+	return FString::Printf(TEXT("%s 미션을 완료했습니다."), *EntryID.ToString());
 }

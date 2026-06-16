@@ -33,6 +33,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPhaseStartedSignature, FName, Pha
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPatientSpawnedSignature, class AScenarioPatientBase*, SpawnedPatient);
 // 페이즈 데이터 변경시(새로운 페이즈로 바뀌거나, 엔트리 체크 변경) 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntryDatasUpdatedSignature);
+// 로그 추가시 호출될 델리게이트 (실습실 모니터에 로그 출력할때 사용)
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnDisplayLogsUpdatedSignature);
 
 // 캐싱에 사용될 래퍼 구조체
 USTRUCT()
@@ -121,6 +123,9 @@ public:
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|Control")
     void RequestCompleteEntryByID(FGameplayTag EntryID);
 
+    UFUNCTION(BlueprintImplementableEvent, Category = "Scenario|UI")
+    void OnEntryForcedCompletedFromUI(FGameplayTag EntryID);
+
     UPROPERTY(BlueprintAssignable, Category = "Scenario|Patient")
     FOnPatientSpawnedSignature OnPatientSpawned;
 
@@ -186,10 +191,17 @@ public:
     void StartPhaseByName(FName PhaseName);
 
     UFUNCTION()
-    void HandlePhaseCompleted(AScenarioPhaseBase* CompletedPhase, bool bIsSuccess);
+    void HandlePhaseCompleted(AScenarioPhaseBase* CompletedPhase, EPhaseState EndCondition);
 
     UFUNCTION(BlueprintCallable, Category = "Scenario|Hint")
     void ReceiveGrabSignal(FGameplayTag GrabbedTag);
+
+    UFUNCTION(BlueprintCallable, Category = "Scenario|Data")
+    class AScenarioEntryBase* GetActiveEntryByID(FGameplayTag EntryID) const;
+
+    // [신규 추가] 서버 권한 단에서 포맷된 로그 문자열을 복제 배열에 탑재하는 함수
+    UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|Control|Log")
+    void AddDisplayLog(const FString& NewLog);
 
     // ==========================================
     // 3. 통합 UI 및 히스토리 관리 (네트워크 최적화)
@@ -207,6 +219,17 @@ public:
 
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|UI")
     void UpdateEntryUIState(FGameplayTag EntryID, bool bCompleted);
+
+    // [신규 추가] 실습실 모니터 위젯이 실시간 리프레시를 위해 구독할 동적 대리자
+    UPROPERTY(BlueprintAssignable, Category = "Scenario|UI|Log")
+    FOnDisplayLogsUpdatedSignature OnDisplayLogsUpdated;
+
+    // [신규 추가] 모든 원격 VR 클라이언트로 패킷이 동시 자동 복제되는 디스플레이 로그 장부 배열
+    UPROPERTY(ReplicatedUsing = OnRep_DisplayLogs, BlueprintReadOnly, Category = "Scenario|UI|Log")
+    TArray<FString> DisplayLogs;
+
+    UFUNCTION()
+    void OnRep_DisplayLogs();
 
 protected:
     FTimerHandle ClockTimerHandle;
@@ -245,7 +268,7 @@ protected:
     void OnRep_SpawnedPatient();
 
     UFUNCTION()
-    void HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry);
+    void HandleEntryCompletedFromWorld(AScenarioEntryBase* Entry, bool bIsForced);
 
     UPROPERTY()
     TMap<FGameplayTag, AScenarioEntryBase*> ActiveEntryMap;

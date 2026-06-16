@@ -41,6 +41,8 @@ void AScenarioGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
     DOREPLIFETIME(AScenarioGameStateBase, bIsPaused);
 
     DOREPLIFETIME(AScenarioGameStateBase, SpawnedPatient);
+
+    DOREPLIFETIME(AScenarioGameStateBase, DisplayLogs);
 }
 
 void AScenarioGameStateBase::OnPlayerIdentityReady(APlayerState* PlayerState)
@@ -163,11 +165,7 @@ void AScenarioGameStateBase::ProcessInteractionPayload(const FInteractionPayload
         // 페이로드에 담겨온 UniqueID와 엔트리 액터의 고유 EntryID가 일치하는지 라우팅 검사를 합니다.
         if (Entry->EntryID == Payload.UniqueID)
         {
-            // 아직 미완료 상태이고, 해당 엔트리의 고유 성공 조건(오버라이드 함수)을 통과하면 완료 처리합니다.
-            if (!Entry->bIsCompleted && Entry->CheckTargetInteraction(Payload))
-            {
-                Entry->CompleteEntry();
-            }
+            Entry->BroadcastProcessPayload(Payload);
 
             // 고유 ID 타깃팅 구조이므로 해당 미션을 찾아서 검사했다면 루프를 즉시 탈출하여 연산을 아낍니다.
             break;
@@ -186,10 +184,15 @@ void AScenarioGameStateBase::RequestCompleteEntryByID(FGameplayTag EntryID)
         {
             if (!Entry->bIsCompleted)
             {
+                // [신규 추가] UI 강제 완료 이벤트 트리거 (BP_GS에서 번역 및 로그 처리를 위함)
+                // 로그 추가 후 실제 수행처리 되어야해서 먼저 호출
+                OnEntryForcedCompletedFromUI(EntryID);
+
                 // 엔트리 완료 시 내부 순정 규칙에 의해 OnEntryCompleted 델리게이트가 호출되며,
                 // 이에 연동된 HandleEntryCompletedFromWorld 및 UpdateEntryUIState가 차례로 자동 실행됩니다.
                 Entry->ForceToCompleteEntry();
                 UE_LOG(LogTemp, Log, TEXT("ScenarioGS: 외부 요청에 의해 엔트리 [%s] 완료 공정을 수행했습니다."), *EntryID.ToString());
+
             }
             break;
         }
@@ -215,7 +218,7 @@ void AScenarioGameStateBase::UpdateScenarioClock()
         // 0초에 도달하는 순간 즉시 시간 초과 실패 판정 호출
         if (CurrentPhaseRemainingTime == 0)
         {
-            HandlePhaseCompleted(CurrentPhase, false);
+            HandlePhaseCompleted(CurrentPhase, EPhaseState::Timeover);
         }
     }
 }
@@ -236,7 +239,7 @@ void AScenarioGameStateBase::OnRep_SpawnedPatient()
     }
 }
 
-void AScenarioGameStateBase::HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry)
+void AScenarioGameStateBase::HandleEntryCompletedFromWorld(AScenarioEntryBase* CompletedEntry, bool bIsForced)
 {
     if (!CompletedEntry) return;
 
@@ -556,6 +559,18 @@ void AScenarioGameStateBase::StartPhaseByName(FName PhaseName)
         return;
     }
 
+    // 다른 페이즈로 변경하기 직전에 엔트리 체크 델리게이트 언바인딩
+    if (CurrentPhase)
+    {
+        for (AScenarioEntryBase* Entry : CurrentPhase->ActiveEntries)
+        {
+            if (Entry)
+            {
+                Entry->OnEntryCompleted.RemoveDynamic(this, &AScenarioGameStateBase::HandleEntryCompletedFromWorld);
+            }
+        }
+    }
+
     CurrentPhaseName = PhaseName;
     CurrentPhase = FoundPhase;
 
@@ -595,48 +610,22 @@ void AScenarioGameStateBase::StartPhaseByName(FName PhaseName)
     CurrentPhase->StartPhase();
 }
 
-void AScenarioGameStateBase::HandlePhaseCompleted(AScenarioPhaseBase* CompletedPhase, bool bIsSuccess)
+void AScenarioGameStateBase::HandlePhaseCompleted(AScenarioPhaseBase* CompletedPhase, EPhaseState EndCondition)
 {
     if (!HasAuthority() || !CompletedPhase) return;
 
     // 기존 페이즈의 엔트리들 체크 델리게이트 언바인딩
-    for (AScenarioEntryBase* Entry : CompletedPhase->ActiveEntries)
+    /*for (AScenarioEntryBase* Entry : CompletedPhase->ActiveEntries)
     {
         if (Entry)
         {
             Entry->OnEntryCompleted.RemoveDynamic(this, &AScenarioGameStateBase::HandleEntryCompletedFromWorld);
         }
-    }
+    }*/
 
-    if (bIsSuccess)
+    switch (EndCondition)
     {
-        CompletedPhase->OnPhaseCompleted.RemoveDynamic(this, &AScenarioGameStateBase::HandlePhaseCompleted);
-
-        FPhaseHistoryData HistoryData;
-        HistoryData.Entries = CurrentEntryDatas;
-        PhaseHistoryMap.Add(CompletedPhase->PhaseName, HistoryData);
-
-        FName NextPhaseName = CompletedPhase->NextSuccessPhaseName;
-
-        if (NextPhaseName == FName("End"))
-        {
-            StopScenarioClock();
-            UE_LOG(LogTemp, Log, TEXT("시나리오 최종 성공 완료 - 명시적 종료 단계를 시작합니다."));
-        }
-        else if (!NextPhaseName.IsNone())
-        {
-            StartPhaseByName(NextPhaseName);
-        }
-        else
-        {
-            UE_LOG(LogTemp, Warning, TEXT("데이터 오류: %s 페이즈 성공 후 다음 목적지가 설정되지 않았습니다."), *CompletedPhase->PhaseName.ToString());
-        }
-    }
-    else
-    {
-        FName NextPhaseName = CompletedPhase->NextFailurePhaseName;
-
-        if (!NextPhaseName.IsNone())
+        case EPhaseState::Completed:
         {
             CompletedPhase->OnPhaseCompleted.RemoveDynamic(this, &AScenarioGameStateBase::HandlePhaseCompleted);
 
@@ -644,20 +633,53 @@ void AScenarioGameStateBase::HandlePhaseCompleted(AScenarioPhaseBase* CompletedP
             HistoryData.Entries = CurrentEntryDatas;
             PhaseHistoryMap.Add(CompletedPhase->PhaseName, HistoryData);
 
+            FName NextPhaseName = CompletedPhase->NextSuccessPhaseName;
+
             if (NextPhaseName == FName("End"))
             {
                 StopScenarioClock();
-                UE_LOG(LogTemp, Log, TEXT("시나리오 최종 실패 종료 - 명시적 종료 단계를 시작합니다."));
+                UE_LOG(LogTemp, Log, TEXT("시나리오 최종 성공 완료 - 명시적 종료 단계를 시작합니다."));
             }
-            else
+            else if (!NextPhaseName.IsNone())
             {
                 StartPhaseByName(NextPhaseName);
             }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("데이터 오류: %s 페이즈 성공 후 다음 목적지가 설정되지 않았습니다."), *CompletedPhase->PhaseName.ToString());
+            }
+            break;
         }
-        else
+            
+        case EPhaseState::Timeover:
         {
-            UE_LOG(LogTemp, Log, TEXT("실패 분기 미설정: 현재 페이즈(%s)에 대기하며 실습을 계속 진행합니다."), *CompletedPhase->PhaseName.ToString());
-        }
+            FName NextPhaseName = CompletedPhase->NextFailurePhaseName;
+
+            if (!NextPhaseName.IsNone())
+            {
+                //CompletedPhase->DeactivateEntries();
+                CompletedPhase->OnPhaseCompleted.RemoveDynamic(this, &AScenarioGameStateBase::HandlePhaseCompleted);
+
+                FPhaseHistoryData HistoryData;
+                HistoryData.Entries = CurrentEntryDatas;
+                PhaseHistoryMap.Add(CompletedPhase->PhaseName, HistoryData);
+
+                if (NextPhaseName == FName("End"))
+                {
+                    StopScenarioClock();
+                    UE_LOG(LogTemp, Log, TEXT("시나리오 최종 실패 종료 - 명시적 종료 단계를 시작합니다."));
+                }
+                else
+                {
+                    StartPhaseByName(NextPhaseName);
+                }
+            }
+            else
+            {
+                UE_LOG(LogTemp, Log, TEXT("실패 분기 미설정: 현재 페이즈(%s)에 대기하며 실습을 계속 진행합니다."), *CompletedPhase->PhaseName.ToString());
+            }
+            break;
+        }   
     }
 }
 
@@ -676,6 +698,19 @@ void AScenarioGameStateBase::ReceiveGrabSignal(FGameplayTag GrabbedTag)
             }
         }
     }
+}
+
+AScenarioEntryBase* AScenarioGameStateBase::GetActiveEntryByID(FGameplayTag EntryID) const
+{
+    if (!EntryID.IsValid()) return nullptr;
+
+    // Map 구조의 내부 주소를 직접 조회하여 루프 없이 고속으로 객체 인출
+    if (AScenarioEntryBase* const* FoundEntryPtr = ActiveEntryMap.Find(EntryID))
+    {
+        return *FoundEntryPtr;
+    }
+
+    return nullptr;
 }
 
 void AScenarioGameStateBase::PauseScenario()
@@ -753,6 +788,23 @@ void AScenarioGameStateBase::UpdateEntryUIState(FGameplayTag EntryID, bool bComp
     if (bIsChanged)
     {
         OnRep_CurrentEntryDatas();
+    }
+}
+
+void AScenarioGameStateBase::AddDisplayLog(const FString& NewLog)
+{
+    if (!HasAuthority()) return;
+
+    DisplayLogs.Add(NewLog);
+    OnRep_DisplayLogs(); // 호스트(리슨서버) 본인의 화면 UI 즉각 리프레시를 위한 수동 트리거
+}
+
+void AScenarioGameStateBase::OnRep_DisplayLogs()
+{
+    // 복제 패킷이 클라이언트에 도달하면 바인딩된 모니터 위젯들에게 전체 알림 전파
+    if (OnDisplayLogsUpdated.IsBound())
+    {
+        OnDisplayLogsUpdated.Broadcast();
     }
 }
 

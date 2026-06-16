@@ -32,40 +32,42 @@ void UScenarioLogSubsystem::StartLogging(const FString& SessionName)
     SessionStartTime = FDateTime::Now();
     bIsLogging = true;
 
-    LogAction(TEXT("Practice Session Started."));
+    FString Formatted = AddLog(FString(), TEXT("Practice Session Started."));
 }
 
-void UScenarioLogSubsystem::LogAction(const FString& LogMessage)
+FString UScenarioLogSubsystem::AddLog(const FString& LogInstigator, const FString& LogMessage)
 {
     UWorld* World = GetWorld();
-    if (!World) return;
+    if (!World) return FString();
+
+    // [신규 추가] Instigator가 비어있을 경우 "System" 명의로 자동 보정 처리
+    FString FinalInstigator = LogInstigator.IsEmpty() ? TEXT("System") : LogInstigator;
+
+    float ElapsedTime = World->GetTimeSeconds();
+    int32 Hours = FMath::FloorToInt(ElapsedTime / 3600.0f);
+    int32 Minutes = FMath::FloorToInt(ElapsedTime / 60.0f) % 60;
+    int32 Seconds = FMath::FloorToInt(ElapsedTime) % 60;
+
+    // 보정된 FinalInstigator 문자열을 사용하여 최종 포맷 조립
+    FString FormattedLog = FString::Printf(TEXT("[%02d:%02d:%02d] [%s] %s"), Hours, Minutes, Seconds, *FinalInstigator, *LogMessage);
 
     if (IsHost())
     {
-        if (!bIsLogging) return;
-
-        FString FinalMessage = LogMessage;
-
-        // 시간 계산 및 로그 배열 추가 로직 (기존과 동일)
-        float ElapsedTime = World->GetTimeSeconds();
-        int32 Hours = FMath::FloorToInt(ElapsedTime / 3600.0f);
-        int32 Minutes = FMath::FloorToInt(ElapsedTime / 60.0f) % 60;
-        int32 Seconds = FMath::FloorToInt(ElapsedTime) % 60;
-
-        FString FormattedLog = FString::Printf(TEXT("[%02d:%02d:%02d] %s"), Hours, Minutes, Seconds, *FinalMessage);
+        if (!bIsLogging) return FormattedLog;
         LogEntries.Add(FormattedLog);
     }
     else
     {
-        // 클라이언트인 경우 본인의 컨트롤러를 통해 서버 RPC 호출 (기존과 동일)
         if (APlayerController* PC = World->GetFirstPlayerController())
         {
             if (AScenarioPlayerControllerBase* MyPC = Cast<AScenarioPlayerControllerBase>(PC))
             {
-                MyPC->Server_RequestLog(LogMessage);
+                // 클라이언트 런타임일 경우 원본 인자를 그대로 RPC 파이프라인으로 우회 전송
+                MyPC->Server_RequestLog(FinalInstigator, LogMessage);
             }
         }
     }
+    return FormattedLog;
 }
 
 void UScenarioLogSubsystem::EndLogging()
@@ -75,7 +77,7 @@ void UScenarioLogSubsystem::EndLogging()
         return;
     }
 
-    LogAction(TEXT("Practice Session Ended."));
+    FString Formatted = AddLog(FString(), TEXT("Practice Session Ended."));
     bIsLogging = false;
 
     // 저장 디렉토리 경로 설정

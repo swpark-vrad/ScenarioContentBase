@@ -16,7 +16,7 @@ public:
 
     // 실습 중 학생 행동 및 로그 추가
     UFUNCTION(BlueprintCallable, Category = "Practice Log")
-    void LogAction(const FString& LogMessage);
+    FString AddLog(const FString& LogInstigator, const FString& LogMessage);
 
     // 실습 종료 및 파일 저장
     UFUNCTION(BlueprintCallable, Category = "Practice Log")

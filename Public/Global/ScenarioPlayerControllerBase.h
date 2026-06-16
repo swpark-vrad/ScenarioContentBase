@@ -70,5 +70,5 @@ public:
 
     /** 클라이언트가 기록한 실습 로그 내용을 서버로 전송하여 취합하는 서버 RPC */
     UFUNCTION(Server, Reliable, WithValidation)
-    void Server_RequestLog(const FString& LogMessage);
+    void Server_RequestLog(const FString& LogInstigator, const FString& LogMessage);
 };
