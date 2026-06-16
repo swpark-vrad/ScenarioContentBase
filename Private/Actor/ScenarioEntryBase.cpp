@@ -130,13 +130,16 @@ void AScenarioEntryBase::ForceToCompleteEntry()
 	// 무조건 서버 권한을 가졌고, 이미 완료된 엔트리가 아닐 때만 강제 변조를 허용합니다.
 	if (!HasAuthority() || bIsCompleted) return;
 
-	// 1. 완수 플래그를 즉시 참으로 변경합니다.
+	// 1. 강제 완료시 수행될 인터랙션을 적용할 함수 호출
+	OnManualInteractionTriggered();
+
+	// 2. 완수 플래그를 즉시 참으로 변경합니다.
 	bIsCompleted = true;
 
-	// 2. bIsActive 여부와 상관없이 이 엔트리의 심사 상태를 강제 종료합니다.
+	// 3. bIsActive 여부와 상관없이 이 엔트리의 심사 상태를 강제 종료합니다.
 	EndEntry();
 
-	// 3. 로컬 호스트 화면 반영 및 상위 페이즈 시스템으로 성공 신호를 즉시 전송합니다.
+	// 4. 로컬 호스트 화면 반영 및 상위 페이즈 시스템으로 성공 신호를 즉시 전송합니다.
 	OnRep_IsCompleted();
 	OnEntryCompleted.Broadcast(this, true);
 
@@ -147,4 +150,9 @@ FString AScenarioEntryBase::MakeExecuteMessage_Implementation() const
 {
 	// 예: "[Entry.Tag.Name] 미션을 완료했습니다." 형태의 기본 문자열 반환
 	return FString::Printf(TEXT("%s 미션을 완료했습니다."), *EntryID.ToString());
+}
+
+
+void AScenarioEntryBase::OnManualInteractionTriggered_Implementation()
+{
 }

@@ -16,6 +16,7 @@ AScenarioGameStateBase::AScenarioGameStateBase()
 {
     ActiveScenarioID = NAME_None;
     StartDateTime = FDateTime::MinValue();
+    PatientAdmissionTime = FDateTime::MinValue();
     ProgressTime = 0;
     CurrentPhaseName = NAME_None;
     CurrentPhaseTotalTime = 0;
@@ -30,6 +31,7 @@ void AScenarioGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 
     DOREPLIFETIME(AScenarioGameStateBase, ActiveScenarioID);
     DOREPLIFETIME(AScenarioGameStateBase, StartDateTime);
+    DOREPLIFETIME(AScenarioGameStateBase, PatientAdmissionTime);
     DOREPLIFETIME(AScenarioGameStateBase, ProgressTime);
     DOREPLIFETIME(AScenarioGameStateBase, CurrentPhaseName);
     DOREPLIFETIME(AScenarioGameStateBase, CurrentPhaseTotalTime);
@@ -203,12 +205,16 @@ void AScenarioGameStateBase::UpdateScenarioClock()
 {
     if (!HasAuthority()) return;
 
-    ProgressTime++;
-    if (OnClockUpdated.IsBound())
+    // 환자가 입장한 이후부터 시간 측정
+    if (PatientAdmissionTime != FDateTime::MinValue())
     {
-        OnClockUpdated.Broadcast(ProgressTime);
+        ProgressTime++;
+        if (OnClockUpdated.IsBound())
+        {
+            OnClockUpdated.Broadcast(ProgressTime);
+        }
     }
-
+    
     // 페이즈가 가동 중이고 제한시간이 설정된 상태(0보다 큼)인 경우 매초 차감
     if (bIsStarted && !bIsPaused && CurrentPhase && CurrentPhaseRemainingTime > 0)
     {
@@ -311,6 +317,9 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
 
     const FScenarioSaveData& ScenarioData = SaveGame->ScenarioData;
     if (ScenarioData.Phases.Num() == 0) return;
+
+    // 상황소개지 문구 캐싱
+    CachedScenarioDescription = ScenarioData.Description;
 
     // 지정된 클래스를 기반으로 월드 원점에 환자 생성
     FActorSpawnParameters PatientSpawnParams;
@@ -514,6 +523,10 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
         ScenarioPhases.Add(NewPhase);
     }
 
+    if (OnScenarioConstructionEnd.IsBound())
+    {
+        OnScenarioConstructionEnd.Broadcast();
+    }
 
     UE_LOG(LogTemp, Log, TEXT("========================================================================="));
     UE_LOG(LogTemp, Log, TEXT("GameState: 최신 메타데이터 구조 기반 다목적 가상 시뮬레이터 환경 조립 성공."));
@@ -844,6 +857,16 @@ void AScenarioGameStateBase::ActivatePatient_Implementation(USceneComponent* InP
     // 총괄 관리자인 GameState가 명령을 내려 환자 액터 본체를 부모 컴포넌트에 하위 종속시킵니다.
     SpawnedPatient->AttachToComponent(InParentComponent, AttachRules);
     SpawnedPatient->ActivatePatient();
+
+    // 환자 입장시간 설정
+    PatientAdmissionTime = FDateTime::Now();
+
+    // 환자 활성화 델리게이트 호출
+    if (OnPatientActivated.IsBound())
+    {
+        OnPatientActivated.Broadcast();
+    }
+
 
     UE_LOG(LogTemp, Log, TEXT("GameState: 환자를 지정된 컴포넌트에 배치하고 시나리오 내 활성화를 완료했습니다."));
 }

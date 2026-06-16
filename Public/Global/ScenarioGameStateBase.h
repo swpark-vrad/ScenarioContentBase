@@ -17,6 +17,8 @@ class AScenarioPatientBase;
 // 델리게이트
 // 시나리오 데이터 로드 완료시 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScenarioDataReadySignature);
+// 시나리오에 필요한 액터들 모두 스폰 후 호출
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnScenarioConstructionEndSignature);
 // 유저 접속, 접속해제시 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUserChangedSignature, APlayerState*, PlayerState);
 // 시간이 변경될 때마다 호출
@@ -31,6 +33,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnScenarioPausedSignature, bool, bI
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPhaseStartedSignature, FName, PhaseName);
 // 환자 스폰시 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPatientSpawnedSignature, class AScenarioPatientBase*, SpawnedPatient);
+// 환자 활성화시 호출
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPatientActivatedSignature);
 // 페이즈 데이터 변경시(새로운 페이즈로 바뀌거나, 엔트리 체크 변경) 호출
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEntryDatasUpdatedSignature);
 // 로그 추가시 호출될 델리게이트 (실습실 모니터에 로그 출력할때 사용)
@@ -82,6 +86,9 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Scenario|Data")
     FOnScenarioDataReadySignature OnScenarioDataReady;
 
+    UPROPERTY(BlueprintAssignable, Category = "Scenario|Data")
+    FOnScenarioConstructionEndSignature OnScenarioConstructionEnd;
+
     UPROPERTY(BlueprintAssignable, Category = "Scenario|Phase")
     FOnPhaseStartedSignature OnPhaseStarted;
 
@@ -96,6 +103,9 @@ public:
     
     UPROPERTY(Replicated, BlueprintReadOnly, Category = "Scenario|Time")
     FDateTime StartDateTime;
+
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "Scenario|Time")
+    FDateTime PatientAdmissionTime;
 
     UPROPERTY(ReplicatedUsing = OnRep_ProgressTime, BlueprintReadOnly, Category = "Scenario|Time")
     int32 ProgressTime;
@@ -128,6 +138,9 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category = "Scenario|Patient")
     FOnPatientSpawnedSignature OnPatientSpawned;
+
+    UPROPERTY(BlueprintAssignable, Category = "Scenario|Patient")
+    FOnPatientActivatedSignature OnPatientActivated;
 
     UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Scenario|Lifecycle")
     void ActivatePatient(USceneComponent* InParentComponent);
@@ -276,4 +289,7 @@ protected:
     // 힌트활성화를 위한 IZ 캐싱
     UPROPERTY()
     TMap<FGameplayTag, FInteractionZoneWrapper> ActiveHintRegistry;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Scenario|Data")
+    FText CachedScenarioDescription;
 };

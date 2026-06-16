@@ -118,6 +118,10 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Entry|Data")
 	FInteractionPayload CachedCurrentPayload;
 
+	UFUNCTION(BlueprintNativeEvent, BlueprintAuthorityOnly, Category = "Entry|Process")
+	void OnManualInteractionTriggered();
+	virtual void OnManualInteractionTriggered_Implementation();
+
 private:
 	UPROPERTY()
 	TArray<class AInteractionZoneBase*> AssociatedZones;

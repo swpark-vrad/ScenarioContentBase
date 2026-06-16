@@ -55,6 +55,9 @@ struct FScenarioSaveData
 	FName ScenarioID;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
+	FText Description;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
 	FPatientPartState PatientPartState;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
