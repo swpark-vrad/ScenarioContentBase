@@ -49,6 +49,9 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Phase|State")
 	bool bIsPhaseSuccess = false;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Phase|Vital")
+	FScenarioVitalModifier VitalModifier;
+
 	UPROPERTY(BlueprintReadOnly, Replicated, Category = "Scenario")
 	EPhaseState PhaseState = EPhaseState::Active;
 

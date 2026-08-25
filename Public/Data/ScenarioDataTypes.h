@@ -6,6 +6,14 @@
 #include "ScenarioDataTypes.generated.h"
 
 UENUM(BlueprintType)
+enum class EScenarioMode : uint8
+{
+	Practice    UMETA(DisplayName = "Practice Mode"),
+	Evaluation  UMETA(DisplayName = "Evaluation Mode")
+};
+
+
+UENUM(BlueprintType)
 enum class EZoneAnchorType : uint8
 {
 	Patient         UMETA(DisplayName = "Patient Body"),
@@ -24,6 +32,28 @@ enum class EBodyPartState : uint8
 	Amputation      UMETA(DisplayName = "Amputation")       // 절단
 };
 
+// VS 변화 타입
+UENUM(BlueprintType)
+enum class EVitalModifierOp : uint8
+{
+	None     UMETA(DisplayName = "Keep Current (유지)"),
+	Set      UMETA(DisplayName = "Set Absolute (절대값 고정)"),
+	Add      UMETA(DisplayName = "Add/Subtract (상대값 증감)")
+};
+
+// 혈액형
+UENUM(BlueprintType)
+enum class EBloodType : uint8
+{
+	A_Positive  UMETA(DisplayName = "A형 (RH+)"),
+	A_Negative  UMETA(DisplayName = "A형 (RH-)"),
+	B_Positive  UMETA(DisplayName = "B형 (RH+)"),
+	B_Negative  UMETA(DisplayName = "B형 (RH-)"),
+	O_Positive  UMETA(DisplayName = "O형 (RH+)"),
+	O_Negative  UMETA(DisplayName = "O형 (RH-)"),
+	AB_Positive UMETA(DisplayName = "AB형 (RH+)"),
+	AB_Negative UMETA(DisplayName = "AB형 (RH-)")
+};
 
 // =================================================================
 // 1. 센서와 통제탑 간의 통신 데이터 (Payload)
@@ -147,8 +177,9 @@ struct FScenarioEntryTableRow : public FTableRowBase
 	FGameplayTag TargetInteractionTag;
 
 	// 이 처치 행동의 목표 수행 횟수 기본값
+	// -1일 경우 횟수로 성공조건 판단하지 않음
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MasterData")
-	int32 TargetExecutionCount = 1;
+	int32 TargetExecutionCount = -1;
 };
 
 // 환자 처치시 추가할 비주얼 메시 구조체
@@ -171,6 +202,106 @@ struct FTreatmentVisuals : public FTableRowBase
 	FTransform RelativeOffset = FTransform::Identity;
 };
 
+// 환자 수치 스펙에 사용될 구조체
+USTRUCT(BlueprintType)
+struct FNumericStat
+{
+	GENERATED_BODY()
+
+	// 고정값, 범위 선택
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsFixed = true;
+
+	// 최소값 (고정값 역할도 함께 수행)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float MinValue = 0.0f;
+	
+	// 최대값
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float MaxValue = 0.0f;
+};
+
+USTRUCT(BlueprintType)
+struct FPatientBaseInfo
+{
+	GENERATED_BODY()
+
+	// 이름
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	FName Name = NAME_None;
+
+	// 성별
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	bool bIsMale = true;
+
+	// 나이
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	int32 Age = 20;
+
+	// 혈액형
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	EBloodType BloodType = EBloodType::B_Positive;
+
+	// 키
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	float Height = 180.0f;
+
+	// 몸무게
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	float Weight = 80.0f;
+};
+
+// 시나리오 빌더 설정용 환자 기본 정보 구조체
+USTRUCT(BlueprintType)
+struct FPatientBaseInfoConfig
+{
+	GENERATED_BODY()
+
+	// 이름
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	FName Name = NAME_None;
+
+	// 성별
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	bool bIsMale = true;
+
+	// 나이
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	int32 Age = 20;
+
+	// 혈액형
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	EBloodType BloodType = EBloodType::B_Positive;
+
+	// 키
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	FNumericStat HeightStat;
+
+	// 몸무게
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Patient|Info")
+	FNumericStat WeightStat;
+
+	FPatientBaseInfo GenerateActualInfo() const
+	{
+		FPatientBaseInfo ActualInfo;
+		ActualInfo.Name = Name;
+		ActualInfo.bIsMale = bIsMale;
+		ActualInfo.Age = Age;
+		ActualInfo.BloodType = BloodType;
+
+		// 키 무작위 산출 (Min/Max 교차 입력 방어)
+		const float MinH = FMath::Min(HeightStat.MinValue, HeightStat.MaxValue);
+		const float MaxH = FMath::Max(HeightStat.MinValue, HeightStat.MaxValue);
+		ActualInfo.Height = HeightStat.bIsFixed ? MinH : FMath::FRandRange(MinH, MaxH);
+
+		// 몸무게 무작위 산출 (Min/Max 교차 입력 방어)
+		const float MinW = FMath::Min(WeightStat.MinValue, WeightStat.MaxValue);
+		const float MaxW = FMath::Max(WeightStat.MinValue, WeightStat.MaxValue);
+		ActualInfo.Weight = WeightStat.bIsFixed ? MinW : FMath::FRandRange(MinW, MaxW);
+
+		return ActualInfo;
+	}
+};
 
 USTRUCT(BlueprintType)
 struct FPatientPartState
@@ -221,4 +352,40 @@ struct FVitalSign
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalSign")
 	float BT = 36.5f;
+};
+
+/** 페이즈나 엔트리 시작 시 바이탈 항목별로 정밀 변조하기 위한 데이터 구조체입니다. */
+USTRUCT(BlueprintType)
+struct FScenarioVitalModifier
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	EVitalModifierOp HROp = EVitalModifierOp::None;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	int32 HRValue = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	EVitalModifierOp RROp = EVitalModifierOp::None;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	int32 RRValue = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	EVitalModifierOp SPO2Op = EVitalModifierOp::None;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	int32 SPO2Value = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	EVitalModifierOp BPOp = EVitalModifierOp::None;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	int32 MinBPValue = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	int32 MaxBPValue = 0;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	bool bIsABP = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	EVitalModifierOp BTOp = EVitalModifierOp::None;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VitalModifier")
+	float BTValue = 0.0f;
 };

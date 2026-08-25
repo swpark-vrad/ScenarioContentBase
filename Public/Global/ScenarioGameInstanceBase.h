@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
+#include "Data/ScenarioDataTypes.h"
 #include "Data/TestResultData.h"
 #include "ScenarioGameInstanceBase.generated.h"
 
@@ -23,7 +24,7 @@ public:
     // ======================================================================
 
     /** 현재 시나리오 고유 ID 전역 설정 */
-    UFUNCTION(BlueprintCallable, Category = "Scenario")
+    UFUNCTION(BlueprintCallable, Category = "GameInstance|Scenario")
     void SetCurrentScenarioID(FName InScenarioID);
 
     /** 현재 실행 중인 시나리오 ID 반환 */
@@ -35,12 +36,16 @@ public:
     bool LoadScenarioToMemory();
 
     /** 시나리오 ID 분석을 통한 내장(Built-In) 프리셋 여부 판별 */
-    UFUNCTION(BlueprintPure, Category = "Scenario")
+    UFUNCTION(BlueprintPure, Category = "GameInstance|Scenario")
     bool IsBuiltInScenario(const FName& ScenarioID) const;
 
     /** ID 코드 형태를 기반으로 빌트인/커스텀 경로를 자동 판별하여 세이브 데이터를 로드합니다 */
     UFUNCTION(BlueprintCallable, Category = "GameInstance|Scenario")
     class UScenarioSaveGame* LoadScenarioData(FName ScenarioID);
+
+    // 컨텐츠 진행모드
+    UPROPERTY(BlueprintReadWrite, Category = "GameInstance|Scenario")
+    EScenarioMode SelectedScenarioMode = EScenarioMode::Practice;
 
     // ======================================================================
     // 2. 의료 영상 이미지 데이터 조회 시스템 (Scenario Image Query)

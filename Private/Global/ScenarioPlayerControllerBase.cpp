@@ -183,11 +183,13 @@ void AScenarioPlayerControllerBase::Server_RequestLog_Implementation(const FStri
     {
         if (UScenarioLogSubsystem* LoggingSubsystem = GI->GetSubsystem<UScenarioLogSubsystem>())
         {
-            // 서버 측 장부에 가공 및 저장 후 모니터 UI 복제 배열에 원스톱 탑재
+            // 1. 서버의 서브시스템에서 포맷팅된 텍스트 생성 및 텍스트 파일 저장용 버퍼에 추가
             FString Formatted = LoggingSubsystem->AddLog(FinalInstigator, LogMessage);
+
             if (AScenarioGameStateBase* GS = GetWorld()->GetGameState<AScenarioGameStateBase>())
             {
-                GS->AddDisplayLog(Formatted);
+                // 2. 모든 클라이언트에게 완성된 텍스트 한 줄 전송
+                GS->Multicast_BroadcastLog(Formatted);
             }
         }
     }

@@ -1,4 +1,5 @@
 #include "Actor/InteractionZoneBase.h"
+#include "Global/ScenarioGameStateBase.h"
 #include "Interface/InteractableTagInterface.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -57,6 +58,24 @@ void AInteractionZoneBase::DeactivateAndShutdown()
 void AInteractionZoneBase::SetPatientActor(AActor* InPatientActor)
 {
 	CachedPatientActor = InPatientActor;
+}
+
+void AInteractionZoneBase::TryActivateHint(bool bActivate)
+{
+	if (!HasAuthority()) return;
+
+	// 평가 모드일 경우(힌트를 켜려는 시도라면) 멀티캐스트 자체를 쏘지 않고 차단합니다.
+	if (bActivate)
+	{
+		AScenarioGameStateBase* GS = GetWorld()->GetGameState<AScenarioGameStateBase>();
+		if (GS && GS->CurrentScenarioMode == EScenarioMode::Evaluation)
+		{
+			return;
+		}
+	}
+
+	// 연습 모드이거나, 힌트를 끄는(false) 시도라면 정상적으로 멀티캐스트 전송
+	Multicast_SetActivateHint(bActivate);
 }
 
 void AInteractionZoneBase::OnRep_bIsShutdown()

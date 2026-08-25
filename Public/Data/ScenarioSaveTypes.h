@@ -1,26 +1,31 @@
-#pragma once
+ï»¿#pragma once
 
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
 #include "Global/ScenarioGameplayTags.h"
+#include "Data/ScenarioDataTypes.h"
 #include "ScenarioSaveTypes.generated.h"
 
 
 // =================================================================
-// 2. ½Ã³ª¸®¿À µ¥ÀÌÅÍ Á÷·ÄÈ­¿ë ¼¼ÀÌºê ±¸Á¶Ã¼ ¼¼Æ®
+// 2. ì‹œë‚˜ë¦¬ì˜¤ ë°ì´í„° ì§ë ¬í™”ìš© ì„¸ì´ë¸Œ êµ¬ì¡°ì²´ ì„¸íŠ¸
 // =================================================================
 USTRUCT(BlueprintType)
 struct FEntrySaveData
 {
 	GENERATED_BODY()
 
-	// ¸¶½ºÅÍ µ¥ÀÌÅÍÅ×ÀÌºíÀÇ RowName (°ğ Ã³Ä¡ Çàµ¿ÀÇ °íÀ¯ ID Å°)
+	// ë§ˆìŠ¤í„° ë°ì´í„°í…Œì´ë¸”ì˜ RowName (ê³§ ì²˜ì¹˜ í–‰ë™ì˜ ê³ ìœ  ID í‚¤)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SaveData")
 	FName EntryRowName;
 
-	// ÀÌ¹ø ÆäÀÌÁî ¹èÄ¡ »óÅÂ¿¡¼­ ÇØ´ç Ã³Ä¡°¡ ÇÊ¼öÀÎÁö ¿©ºÎ
+	// ì´ë²ˆ í˜ì´ì¦ˆ ë°°ì¹˜ ìƒíƒœì—ì„œ í•´ë‹¹ ì²˜ì¹˜ê°€ í•„ìˆ˜ì¸ì§€ ì—¬ë¶€
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SaveData")
-	bool bIsMandatory = true;
+	bool bIsMandatory = false;
+
+	// ì—”íŠ¸ë¦¬ ì‹œì‘ì‹œ í™˜ìì—ê²Œ ì ìš©ë  VS ìˆ˜ì •ì¹˜
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SaveData")
+	FScenarioVitalModifier VitalModifier;
 };
 
 USTRUCT(BlueprintType)
@@ -37,13 +42,17 @@ struct FPhaseSaveData
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
 	TArray<FEntrySaveData> Entries;
 
-	// ¼º°øÇßÀ» ¶§ ÀüÈ¯µÉ ´ÙÀ½ ÆäÀÌÁî ÀÌ¸§
+	// ì„±ê³µí–ˆì„ ë•Œ ì „í™˜ë  ë‹¤ìŒ í˜ì´ì¦ˆ ì´ë¦„
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
 	FName NextSuccessPhaseName;
 
-	// ½Ã°£ ÃÊ°ú µî ½ÇÆĞ Á¶°ÇÀÌ ¹ßµ¿ÇßÀ» ¶§ ÀüÈ¯µÉ ´ÙÀ½ ÆäÀÌÁî ÀÌ¸§
+	// ì‹œê°„ ì´ˆê³¼ ë“± ì‹¤íŒ¨ ì¡°ê±´ì´ ë°œë™í–ˆì„ ë•Œ ì „í™˜ë  ë‹¤ìŒ í˜ì´ì¦ˆ ì´ë¦„
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
 	FName NextFailurePhaseName;
+
+	// í˜ì´ì¦ˆ ì‹œì‘ì‹œ í™˜ìì—ê²Œ ì ìš©ë  VS ìˆ˜ì •ì¹˜
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SaveData")
+	FScenarioVitalModifier VitalModifier;
 };
 
 USTRUCT(BlueprintType)
@@ -58,8 +67,38 @@ struct FScenarioSaveData
 	FText Description;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
+	FPatientBaseInfoConfig PatientInfoConfig;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
+	FVitalSign InitVitalSign;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
 	FPatientPartState PatientPartState;
+
+	// ì‹œì‘ í˜ì´ì¦ˆ ì´ë¦„
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
+	FName StartPhaseName;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|SaveData")
 	TArray<FPhaseSaveData> Phases;
+};
+
+// =================================================================
+// ì‹œë‚˜ë¦¬ì˜¤ ë¹Œë”ìš© ì„¸ì´ë¸Œ êµ¬ì¡°ì²´
+// =================================================================
+USTRUCT(BlueprintType)
+struct FPhaseNodeSaveData
+{
+	GENERATED_BODY()
+
+	// ê¸°ì¡´ì— êµ¬í˜„ëœ ì¸ê²Œì„ìš© ìˆœìˆ˜ ë…¼ë¦¬ ë°ì´í„° (PhaseName, TimeLimit, Entries ë“± í¬í•¨)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Editor")
+	FPhaseSaveData PhaseData;
+
+	// ì—ë””í„°ì—ì„œ ë…¸ë“œ ìœ„ì ¯ì„ ë³µì›í•  ë•Œ ì‚¬ìš©í•  ê·¸ë˜í”„ ë‚´ ì¢Œí‘œ
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scenario|Editor")
+	FVector2D NodePosition = FVector2D::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TArray<FName> ContainEntries;
 };

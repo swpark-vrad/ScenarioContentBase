@@ -64,6 +64,9 @@ public:
     // ==========================================
     // 1. 기존 시스템 (유저, 시간, 기본 데이터)
     // ==========================================
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "Scenario|Mode")
+    EScenarioMode CurrentScenarioMode;
+    
     void OnPlayerIdentityReady(APlayerState* PlayerState);
 
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|Time")
@@ -189,6 +192,8 @@ public:
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|Setup")
     void BuildGlobalScenarioEnvironment();
 
+    FORCEINLINE class AScenarioPatientBase* GetSpawnedPatient() const { return SpawnedPatient; }
+
     // 호스트의 명시적 요청에 의해 실제 시나리오를 가동시키는 뇌관 함수를 추가합니다
     UFUNCTION(BlueprintAuthorityOnly, BlueprintNativeEvent, BlueprintCallable, Category = "Scenario|Control")
     void StartScenario();
@@ -233,16 +238,9 @@ public:
     UFUNCTION(BlueprintAuthorityOnly, BlueprintCallable, Category = "Scenario|UI")
     void UpdateEntryUIState(FGameplayTag EntryID, bool bCompleted);
 
-    // [신규 추가] 실습실 모니터 위젯이 실시간 리프레시를 위해 구독할 동적 대리자
-    UPROPERTY(BlueprintAssignable, Category = "Scenario|UI|Log")
-    FOnDisplayLogsUpdatedSignature OnDisplayLogsUpdated;
-
-    // [신규 추가] 모든 원격 VR 클라이언트로 패킷이 동시 자동 복제되는 디스플레이 로그 장부 배열
-    UPROPERTY(ReplicatedUsing = OnRep_DisplayLogs, BlueprintReadOnly, Category = "Scenario|UI|Log")
-    TArray<FString> DisplayLogs;
-
-    UFUNCTION()
-    void OnRep_DisplayLogs();
+    UFUNCTION(NetMulticast, Reliable, Category = "Scenario|Log")
+    void Multicast_BroadcastLog(const FString& NewLog);
+    virtual void Multicast_BroadcastLog_Implementation(const FString& NewLog);
 
 protected:
     FTimerHandle ClockTimerHandle;

@@ -36,8 +36,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Entry|Data")
 	bool bIsMandatory = true;
 
+	// 이 처치 행동의 목표 수행 횟수 기본값
+	// -1일 경우 횟수로 성공조건 판단하지 않음
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Entry|Data")
-	int32 TargetExecutionCount = 1;
+	int32 TargetExecutionCount = -1;
 
 	// ==========================================
 	// 2. 엔트리 상태 변수
@@ -47,6 +49,11 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Entry|State")
 	bool bIsActive = false;
 
+	// 컨텐츠 시작 후 수행된 전체 횟수
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Entry|State")
+	int32 TotalExecutionCount = 0;
+
+	// 페이즈 시작 후 수행된 횟수
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Entry|State")
 	int32 CurrentExecutionCount = 0;
 
@@ -90,6 +97,15 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category = "Entry|Events")
 	void ReceiveEndEntry();
 
+	// [추가] 페이즈 시작 시 자동으로 완료 처리할 조건이 있는지 검사하는 함수
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Entry|Condition")
+	bool CheckAutoCompletionCondition() const;
+	virtual bool CheckAutoCompletionCondition_Implementation() const;
+
+	// 목표 수행횟수에 도달했는가
+	UFUNCTION(BlueprintPure, Category = "Entry|Condition")
+	bool IsTargetExecutionCountReached() const;
+
 	UFUNCTION()
 	void BroadcastProcessPayload(const FInteractionPayload& Payload);
 
@@ -111,6 +127,9 @@ public:
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Scenario|Log")
 	FString MakeExecuteMessage() const;
 	virtual FString MakeExecuteMessage_Implementation() const;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Entry|Vital")
+	FScenarioVitalModifier VitalModifier;
 
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<class FLifetimeProperty>& OutLifetimeProps) const override;

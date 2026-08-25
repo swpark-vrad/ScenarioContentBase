@@ -27,6 +27,11 @@ public:
 	// 환자 인터페이스 캐싱을 위한 함수
 	void SetPatientActor(AActor* InPatientActor);
 
+	// 서버에서 힌트 활성화 시도
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Zone|Hint")
+	void TryActivateHint(bool bActivate);
+
+	// 힌트 활성화
 	UFUNCTION(NetMulticast, Reliable, Category = "Zone|Hint")
 	void Multicast_SetActivateHint(bool bActivate);
 	virtual void Multicast_SetActivateHint_Implementation(bool bActivate);

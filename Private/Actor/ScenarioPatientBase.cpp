@@ -77,8 +77,8 @@ void AScenarioPatientBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 
 	// 실습 중 변경될 누적 처치 내역 태그들을 멀티플레이 네트워크 복제 목록에 가동
 	DOREPLIFETIME(AScenarioPatientBase, AppliedTreatments); 
+	DOREPLIFETIME(AScenarioPatientBase, PatientInfo);
 	DOREPLIFETIME(AScenarioPatientBase, InitialPartState);
-
 	DOREPLIFETIME(AScenarioPatientBase, VitalSign);
 	DOREPLIFETIME(AScenarioPatientBase, DisplayVitalSign);
 }
@@ -95,6 +95,16 @@ FGameplayTagContainer AScenarioPatientBase::GetStateTags_Implementation() const
 	return AppliedTreatments;
 }
 
+void AScenarioPatientBase::InitializePatientInfo(FPatientBaseInfo InPatientInfo)
+{
+	if (!HasAuthority()) return;
+
+	PatientInfo = InPatientInfo;
+
+	// 서버 본인도 변경된 정보를 바탕으로 이벤트를 실행하도록 호출
+	ApplyPatientInfo(PatientInfo);
+}
+
 void AScenarioPatientBase::InitializePartState(FPatientPartState PartState)
 {
 	if (!HasAuthority()) return;
@@ -104,6 +114,12 @@ void AScenarioPatientBase::InitializePartState(FPatientPartState PartState)
 
 	// 서버(호스트) 플레이어 화면의 비주얼 조립을 위해 즉시 실행합니다.
 	ApplyInitialPartState(InitialPartState);
+}
+
+void AScenarioPatientBase::OnRep_PatientInfo()
+{
+	// 클라이언트에서 값이 동기화되었을 때 이벤트 실행
+	ApplyPatientInfo(PatientInfo);
 }
 
 void AScenarioPatientBase::OnRep_InitialPartState()
@@ -354,5 +370,42 @@ void AScenarioPatientBase::SetBodyTemperature(float NewBT)
 	if (!HasAuthority()) return;
 
 	VitalSign.BT = NewBT;
+	UpdateDisplayVitalSigns();
+}
+
+void AScenarioPatientBase::ApplyVitalModifier(const FScenarioVitalModifier& Modifier)
+{
+	if (!HasAuthority()) return; // 안전한 서버 권한 단독 처리 보장
+
+	// 1. 심박수 (Heart Rate) 연산 규칙 분기
+	if (Modifier.HROp == EVitalModifierOp::Set) VitalSign.HR = Modifier.HRValue;
+	else if (Modifier.HROp == EVitalModifierOp::Add) VitalSign.HR += Modifier.HRValue;
+
+	// 2. 호흡수 (Respiratory Rate) 연산 규칙 분기
+	if (Modifier.RROp == EVitalModifierOp::Set) VitalSign.RR = Modifier.RRValue;
+	else if (Modifier.RROp == EVitalModifierOp::Add) VitalSign.RR += Modifier.RRValue;
+
+	// 3. 산소포화도 (SPO2) 연산 규칙 분기 및 0~100 안전 범위 제한
+	if (Modifier.SPO2Op == EVitalModifierOp::Set) VitalSign.SPO2 = FMath::Clamp(Modifier.SPO2Value, 0, 100);
+	else if (Modifier.SPO2Op == EVitalModifierOp::Add) VitalSign.SPO2 = FMath::Clamp(VitalSign.SPO2 + Modifier.SPO2Value, 0, 100);
+
+	// 4. 혈압 (Blood Pressure) 연산 규칙 분기
+	if (Modifier.BPOp == EVitalModifierOp::Set)
+	{
+		VitalSign.MinBP = Modifier.MinBPValue;
+		VitalSign.MaxBP = Modifier.MaxBPValue;
+		VitalSign.IsABP = Modifier.bIsABP;
+	}
+	else if (Modifier.BPOp == EVitalModifierOp::Add)
+	{
+		VitalSign.MinBP += Modifier.MinBPValue;
+		VitalSign.MaxBP += Modifier.MaxBPValue;
+	}
+
+	// 5. 체온 (Body Temperature) 연산 규칙 분기
+	if (Modifier.BTOp == EVitalModifierOp::Set) VitalSign.BT = Modifier.BTValue;
+	else if (Modifier.BTOp == EVitalModifierOp::Add) VitalSign.BT += Modifier.BTValue;
+
+	// 마스터 정보 갱신 후, 난수 보정기 및 복제 패킷 송신 시스템 강제 가동
 	UpdateDisplayVitalSigns();
 }

@@ -1,6 +1,8 @@
 #include "Actor/ScenarioEntryBase.h"
 #include "Actor/ScenarioPhaseBase.h"
 #include "Actor/InteractionZoneBase.h"
+#include "Actor/ScenarioPatientBase.h"
+#include "Global/ScenarioGameStateBase.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/GameStateBase.h"
 
@@ -16,6 +18,7 @@ void AScenarioEntryBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AScenarioEntryBase, bIsActive); // 활성화 상태 동기화
+	DOREPLIFETIME(AScenarioEntryBase, TotalExecutionCount);
 	DOREPLIFETIME(AScenarioEntryBase, CurrentExecutionCount);
 	DOREPLIFETIME(AScenarioEntryBase, bIsCompleted);
 }
@@ -68,7 +71,24 @@ void AScenarioEntryBase::StartEntry()
 {
 	if (!HasAuthority() || bIsCompleted) return;
 
+	// 엔트리(미션)가 실무 심사에 들어가는 순간 환자의 바이탈을 연산 규칙에 맞춰 실시간 변조
+	if (AScenarioGameStateBase* GS = Cast<AScenarioGameStateBase>(GetWorld()->GetGameState()))
+	{
+		if (GS->GetSpawnedPatient())
+		{
+			GS->GetSpawnedPatient()->ApplyVitalModifier(VitalModifier);
+		}
+	}
+
 	bIsActive = true;
+	CurrentExecutionCount = 0;
+
+	// 페이즈 변경시 이미 수행했을 경우 성공처리
+	if (CheckAutoCompletionCondition())
+	{
+		CompleteEntry();
+		return;
+	}
 	
 	ReceiveStartEntry(); // BP 이벤트 호출
 }
@@ -86,9 +106,25 @@ void AScenarioEntryBase::ReceiveStartEntry_Implementation() {}
 void AScenarioEntryBase::ReceiveEndEntry_Implementation() {}
 // =====================================
 
+bool AScenarioEntryBase::CheckAutoCompletionCondition_Implementation() const
+{
+	return false;
+}
+
+bool AScenarioEntryBase::IsTargetExecutionCountReached() const
+{
+	// TargetExecutionCount가 설정되지 않았다면(-1 이하), 1회만 수행했어도(> 0) 만족한 것으로 간주
+	if (TargetExecutionCount <= 0)
+	{
+		return CurrentExecutionCount > 0;
+	}
+
+	// 목표 횟수가 설정되어 있다면, 그 횟수 이상을 수행했는지 확인
+	return CurrentExecutionCount >= TargetExecutionCount;
+}
+
 void AScenarioEntryBase::BroadcastProcessPayload(const FInteractionPayload& Payload)
 {
-	// [핵심 변경] 활성화(bIsActive) 상태가 아니거나 이미 끝났으면 심사하지 않고 무시함
 	if (!HasAuthority()) return;
 
 	CachedCurrentPayload = Payload;
@@ -96,8 +132,19 @@ void AScenarioEntryBase::BroadcastProcessPayload(const FInteractionPayload& Payl
 
 	if (CheckTargetInteraction(Payload))
 	{
-		CurrentExecutionCount++;
-		CompleteEntry();
+		// 전체 수행횟수 증가
+		TotalExecutionCount++;
+
+		// 활성화되어있다면 현재 수행횟수 증가
+		if (bIsActive)
+		{
+			CurrentExecutionCount++;
+
+			if (IsTargetExecutionCountReached())
+			{
+				CompleteEntry();
+			}
+		}
 	}
 }
 

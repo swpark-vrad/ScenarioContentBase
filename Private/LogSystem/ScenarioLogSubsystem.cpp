@@ -70,6 +70,21 @@ FString UScenarioLogSubsystem::AddLog(const FString& LogInstigator, const FStrin
     return FormattedLog;
 }
 
+void UScenarioLogSubsystem::ReceiveNetworkLog(const FString& NewLog)
+{
+    // 서버(호스트)는 RecordScenarioLog 내의 AddLog에서 이미 배열에 추가했으므로 생략
+    if (!IsHost())
+    {
+        LogEntries.Add(NewLog);
+    }
+
+    // 위젯(UI)이 갱신되도록 델리게이트를 호출합니다.
+    if (OnLogUpdated.IsBound())
+    {
+        OnLogUpdated.Broadcast();
+    }
+}
+
 void UScenarioLogSubsystem::EndLogging()
 {
     if (!IsHost() || !bIsLogging)
@@ -104,3 +119,4 @@ void UScenarioLogSubsystem::EndLogging()
     // 파일 저장 (한글 깨짐 방지를 위해 UTF-8 적용)
     FFileHelper::SaveStringToFile(FinalLogString, *FullPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
+

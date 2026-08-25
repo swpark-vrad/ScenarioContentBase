@@ -67,10 +67,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Patient|Components")
 	USkeletalMeshComponent* RightLegMesh; // 오른다리
 
-	// ======================================================================
-	// 요구사항 2. 호스트 및 클라이언트 전체 전파용 모프 타겟 RPC 시스템
-	// ======================================================================
-	/** 외부(도구/컨트롤러)에서 환자의 모프 타겟 조작을 요청할 때 가동하는 런타임 입구 함수 */
+	/* 환자 기본정보 */
+	UPROPERTY(ReplicatedUsing = OnRep_PatientInfo, BlueprintReadOnly, Category = "Patient|Info")
+	FPatientBaseInfo PatientInfo;
+
+	UFUNCTION()
+	void OnRep_PatientInfo();
+
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Info")
+	void InitializePatientInfo(FPatientBaseInfo InPatientInfo);
+
+	/* 환자 부위별 상태 */
 	UPROPERTY(ReplicatedUsing = OnRep_InitialPartState, BlueprintReadOnly, Category = "Patient|Treatment")
 	FPatientPartState InitialPartState;
 
@@ -136,6 +143,10 @@ public:
 	/** 특정 항목 수정: 체온 변경 */
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
 	void SetBodyTemperature(float NewBT);
+	
+	// VS 수정치 적용
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Patient|Vital")
+	void ApplyVitalModifier(const FScenarioVitalModifier& Modifier);
 
 protected:
 	virtual void BeginPlay() override;
@@ -164,6 +175,11 @@ protected:
 
 	UPROPERTY()
 	TMap<FGameplayTag, UStaticMeshComponent*> SpawnedVisualComponents;
+
+
+	/** 정보가 업데이트되었을 때 UI나 외형을 갱신할 수 있도록 블루프린트 이벤트 제공 */
+	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable, Category = "Patient|Info")
+	void ApplyPatientInfo(const FPatientBaseInfo& Info);
 
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable, Category = "Patient|Treatment")
 	void ApplyInitialPartState(const FPatientPartState& PartState);

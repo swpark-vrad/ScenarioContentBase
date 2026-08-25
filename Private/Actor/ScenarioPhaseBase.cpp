@@ -1,6 +1,8 @@
 #include "Actor/ScenarioPhaseBase.h"
 #include "Actor/ScenarioEntryBase.h"
 #include "Actor/InteractionZoneBase.h"
+#include "Actor/ScenarioPatientBase.h"
+#include "Global/ScenarioGameStateBase.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/GameStateBase.h"
 #include "TimerManager.h"
@@ -29,9 +31,14 @@ void AScenarioPhaseBase::StartPhase()
 
 	PhaseState = EPhaseState::Active;
 
-	if (AGameStateBase* GS = GetWorld()->GetGameState())
+	if (AScenarioGameStateBase* GS = Cast<AScenarioGameStateBase>(GetWorld()->GetGameState()))
 	{
 		PhaseStartTime = GS->GetServerWorldTimeSeconds();
+		// 페이즈 시작시 환자 VS 수정치 적용
+		if (GS->GetSpawnedPatient())
+		{
+			GS->GetSpawnedPatient()->ApplyVitalModifier(VitalModifier);
+		}
 	}
 
 	// 1. 블루프린트 시작 이벤트 호출 (환자 스폰 등 처리)

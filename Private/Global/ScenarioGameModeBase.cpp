@@ -21,17 +21,19 @@ void AScenarioGameModeBase::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 호스트 자신의 로컬 GameInstance와 현재 매칭된 월드의 GameState를 참조합니다
+    // 호스트의 GI에 저장된 데이터를 클라이언트에게 리플리케이션 시키기 위해 여기에서 GS의 변수를 설정
     UScenarioGameInstanceBase* MyGI = Cast<UScenarioGameInstanceBase>(GetGameInstance());
     AScenarioGameStateBase* MyGS = GetGameState<AScenarioGameStateBase>();
 
     if (MyGI && MyGS)
     {
         // 1. 호스트가 메뉴 화면에서 들고 온 시나리오 ID를 가져옵니다
-        FName SelectedID = MyGI->GetCurrentScenarioID();
+        FName SelectedID = MyGI->GetCurrentScenarioID(); 
+        EScenarioMode SelectedMode = MyGI->SelectedScenarioMode;
 
         // 2. 공용 GameState 변수에 대입하여 네트워크를 통한 전체 클라이언트 전파를 개시합니다
         MyGS->ActiveScenarioID = SelectedID;
+        MyGS->CurrentScenarioMode = SelectedMode;
 
         // 3. [호스트 전용 로직] 호스트 자신도 로컬 에셋 폴더에서 데이터를 꺼내 메모리에 로드합니다
         MyGI->LoadScenarioToMemory();

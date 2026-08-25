@@ -1,5 +1,6 @@
 ﻿#include "Global/ScenarioGameStateBase.h"
 #include "Global/ScenarioGameInstanceBase.h"
+#include "LogSystem/ScenarioLogSubsystem.h"
 #include "Actor/ScenarioPhaseBase.h"
 #include "Actor/ScenarioEntryBase.h"
 #include "Actor/InteractionZoneBase.h"
@@ -29,6 +30,7 @@ void AScenarioGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
+    DOREPLIFETIME(AScenarioGameStateBase, CurrentScenarioMode);
     DOREPLIFETIME(AScenarioGameStateBase, ActiveScenarioID);
     DOREPLIFETIME(AScenarioGameStateBase, StartDateTime);
     DOREPLIFETIME(AScenarioGameStateBase, PatientAdmissionTime);
@@ -43,8 +45,6 @@ void AScenarioGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
     DOREPLIFETIME(AScenarioGameStateBase, bIsPaused);
 
     DOREPLIFETIME(AScenarioGameStateBase, SpawnedPatient);
-
-    DOREPLIFETIME(AScenarioGameStateBase, DisplayLogs);
 }
 
 void AScenarioGameStateBase::OnPlayerIdentityReady(APlayerState* PlayerState)
@@ -334,8 +334,13 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
     if (SpawnedPatient)
     {
         PatientMesh = SpawnedPatient->TorsoMesh; // 메인 부모 바디로 설정된 TorsoMesh 사용
+        // 환자 기본정보 적용
+        FPatientBaseInfo PatientInfo = ScenarioData.PatientInfoConfig.GenerateActualInfo();
+        SpawnedPatient->InitializePatientInfo(PatientInfo);
         // 환자 부위별 상태 적용
         SpawnedPatient->InitializePartState(ScenarioData.PatientPartState);
+        // 초기 VS 설정
+        SpawnedPatient->SetVitalSign(ScenarioData.InitVitalSign);
 
         UE_LOG(LogTemp, Log, TEXT("GameState: 환자 베이스 액터 동적 스폰 및 데이터 바인딩 완료."));
 
@@ -360,6 +365,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
         NewPhase->TimeLimit = PhaseData.TimeLimit;
         NewPhase->NextSuccessPhaseName = PhaseData.NextSuccessPhaseName;
         NewPhase->NextFailurePhaseName = PhaseData.NextFailurePhaseName;
+        NewPhase->VitalModifier = PhaseData.VitalModifier;
 
         // 2. 엔트리 생성 루프 시작
         for (const FEntrySaveData& SaveEntry : PhaseData.Entries)
@@ -380,6 +386,7 @@ void AScenarioGameStateBase::BuildGlobalScenarioEnvironment()
             NewEntry->bIsMandatory = SaveEntry.bIsMandatory;
             NewEntry->TargetExecutionCount = RowData->TargetExecutionCount;
             NewEntry->TargetInteractionTag = RowData->TargetInteractionTag;
+            NewEntry->VitalModifier = SaveEntry.VitalModifier;
 
             // 구역 데이터 검색 전 엔트리의 기본 페이즈 오너 연결을 최우선 수행합니다.
             NewEntry->InitializeEntry(NewPhase, nullptr);
@@ -689,6 +696,7 @@ void AScenarioGameStateBase::HandlePhaseCompleted(AScenarioPhaseBase* CompletedP
             }
             else
             {
+                // 필수 엔트리를 보유하지 않았을 경우 성공 페이즈로 넘어가는 기능 추가 필요
                 UE_LOG(LogTemp, Log, TEXT("실패 분기 미설정: 현재 페이즈(%s)에 대기하며 실습을 계속 진행합니다."), *CompletedPhase->PhaseName.ToString());
             }
             break;
@@ -699,6 +707,7 @@ void AScenarioGameStateBase::HandlePhaseCompleted(AScenarioPhaseBase* CompletedP
 void AScenarioGameStateBase::ReceiveGrabSignal(FGameplayTag GrabbedTag)
 {
     if (!HasAuthority()) return;
+
     // 전달 받은 태그가 추가되어있는지 확인
     if (GrabbedTag.IsValid() && ActiveHintRegistry.Contains(GrabbedTag))
     {
@@ -707,7 +716,8 @@ void AScenarioGameStateBase::ReceiveGrabSignal(FGameplayTag GrabbedTag)
         {
             if (IsValid(NewZone))
             {
-                NewZone->Multicast_SetActivateHint(true);
+                // 힌트 활성화 시도
+                NewZone->TryActivateHint(true);
             }
         }
     }
@@ -808,18 +818,23 @@ void AScenarioGameStateBase::AddDisplayLog(const FString& NewLog)
 {
     if (!HasAuthority()) return;
 
-    DisplayLogs.Add(NewLog);
-    OnRep_DisplayLogs(); // 호스트(리슨서버) 본인의 화면 UI 즉각 리프레시를 위한 수동 트리거
+    Multicast_BroadcastLog(NewLog);
 }
 
-void AScenarioGameStateBase::OnRep_DisplayLogs()
+void AScenarioGameStateBase::Multicast_BroadcastLog_Implementation(const FString& NewLog)
 {
-    // 복제 패킷이 클라이언트에 도달하면 바인딩된 모니터 위젯들에게 전체 알림 전파
-    if (OnDisplayLogsUpdated.IsBound())
+    // 서버와 모든 클라이언트가 이 곳을 실행합니다.
+    UScenarioGameInstanceBase* GI = Cast<UScenarioGameInstanceBase>(GetGameInstance());
+    if (GI)
     {
-        OnDisplayLogsUpdated.Broadcast();
+        if (UScenarioLogSubsystem* LogSubsystem = GI->GetSubsystem<UScenarioLogSubsystem>())
+        {
+            // 로컬 LogSubsystem에 로그를 전달
+            LogSubsystem->ReceiveNetworkLog(NewLog);
+        }
     }
 }
+
 
 void AScenarioGameStateBase::OnRep_CurrentEntryDatas()
 {
